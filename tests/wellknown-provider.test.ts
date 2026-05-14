@@ -192,6 +192,34 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });
 
+    it('keeps supporting path-relative legacy indexes like code.claude.com/docs', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://code.claude.com/docs/.well-known/agent-skills/index.json') {
+          return response('not found', { status: 404 });
+        }
+        if (href === 'https://code.claude.com/.well-known/agent-skills/index.json') {
+          return response('not found', { status: 404 });
+        }
+        if (href === 'https://code.claude.com/docs/.well-known/skills/index.json') {
+          return response({
+            skills: [{ name: 'claude', description: 'Claude Code.', files: ['SKILL.md'] }],
+          });
+        }
+        if (href === 'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md') {
+          return response('---\nname: claude\ndescription: Claude Code.\n---\n# Claude');
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://code.claude.com/docs');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('claude');
+      expect(skills[0]!.sourceUrl).toBe(
+        'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md'
+      );
+    });
+
     it('supports v0.2.0 skill-md entries with relative URL resolution and digest checks', async () => {
       const skillMd = '---\nname: code-review\ndescription: Review code.\n---\n# Code Review';
 

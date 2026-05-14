@@ -175,7 +175,7 @@ export class WellKnownProvider implements HostProvider {
           if (!response.ok) continue;
 
           const rawIndex = (await response.json()) as unknown;
-          const normalized = this.normalizeIndex(rawIndex, indexUrl, resolvedBase, wellKnownPath);
+          const normalized = this.normalizeIndex(rawIndex, indexUrl, wellKnownPath);
           if (!normalized) continue;
 
           return {
@@ -199,7 +199,6 @@ export class WellKnownProvider implements HostProvider {
   private normalizeIndex(
     rawIndex: unknown,
     indexUrl: string,
-    resolvedBaseUrl: string,
     resolvedWellKnownPath: string
   ): { index: WellKnownIndex; entries: NormalizedWellKnownEntry[] } | null {
     if (!rawIndex || typeof rawIndex !== 'object') return null;
@@ -249,13 +248,19 @@ export class WellKnownProvider implements HostProvider {
         name: entry.name,
         description: entry.description,
         files: entry.files,
-        baseUrl: resolvedBaseUrl,
+        baseUrl: this.getLegacySkillBaseUrl(indexUrl, resolvedWellKnownPath),
         wellKnownPath: resolvedWellKnownPath,
         indexEntry: entry,
       });
     }
 
     return { index: { skills: v1Entries }, entries };
+  }
+
+  private getLegacySkillBaseUrl(indexUrl: string, wellKnownPath: string): string {
+    const parsed = new URL(indexUrl);
+    const marker = `/${wellKnownPath}/${this.INDEX_FILE}`;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname.slice(0, -marker.length)}`;
   }
 
   private isValidSkillName(name: unknown): name is string {
