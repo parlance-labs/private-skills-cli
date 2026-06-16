@@ -41,7 +41,7 @@ export interface BlobSkill extends Skill {
 
 // ─── Constants ───
 
-const DOWNLOAD_BASE_URL = process.env.SKILLS_DOWNLOAD_URL || 'https://skills.sh';
+const DOWNLOAD_BASE_URL = process.env.SKILLS_DOWNLOAD_URL || 'https://skills.parlance-labs.com';
 
 // Repos that self-host their downloads on the blob fast-path
 export const BLOB_ALLOWED_REPOS: Record<string, { downloadUrl: (slug: string) => string }> = {

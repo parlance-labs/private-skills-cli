@@ -68,12 +68,12 @@ describe('skills CLI', () => {
         REPL_ID: '',
       });
       const output = stripLogo(result.stdout);
-      expect(output).toContain('The open agent skills ecosystem');
+      expect(output).toContain('Parlance Labs Private Skills');
       expect(output).toContain('npx skills add');
       expect(output).toContain('npx skills use');
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
-      expect(output).toContain('skills.sh');
+      expect(output).toContain('skills.parlance-labs.com');
     });
   });
 
