@@ -64,7 +64,7 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}The open agent skills ecosystem${RESET}`);
+  console.log(`${DIM}Parlance Labs Private Skills${RESET}`);
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
@@ -98,7 +98,7 @@ function showBanner(): void {
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
   console.log();
-  console.log(`Discover more skills at ${TEXT}https://skills.sh/${RESET}`);
+  console.log(`Discover more skills at ${TEXT}https://skills.parlance-labs.com/${RESET}`);
   console.log();
 }
 
@@ -190,7 +190,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
 
-Discover more skills at ${TEXT}https://skills.sh/${RESET}
+Discover more skills at ${TEXT}https://skills.parlance-labs.com/${RESET}
 `);
 }
 
@@ -221,7 +221,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
   ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
 
-Discover more skills at ${TEXT}https://skills.sh/${RESET}
+Discover more skills at ${TEXT}https://skills.parlance-labs.com/${RESET}
 `);
 }
 
@@ -284,7 +284,9 @@ Describe when this skill should be used.
     `  ${DIM}URL:${RESET}     Host the file, then ${TEXT}npx skills add https://example.com/${displayPath}${RESET}`
   );
   console.log();
-  console.log(`Browse existing skills for inspiration at ${TEXT}https://skills.sh/${RESET}`);
+  console.log(
+    `Browse existing skills for inspiration at ${TEXT}https://skills.parlance-labs.com/${RESET}`
+  );
   console.log();
 }
 

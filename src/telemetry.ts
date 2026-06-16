@@ -1,5 +1,7 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
-const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+const TELEMETRY_URL =
+  process.env.SKILLS_TELEMETRY_URL || 'https://skills-telemetry.parlance-labs.com/t';
+const AUDIT_URL =
+  process.env.SKILLS_AUDIT_URL || 'https://skills-telemetry.parlance-labs.com/audit';
 
 interface InstallTelemetryData {
   event: 'install';

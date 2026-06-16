@@ -1,7 +1,7 @@
 {
-  "name": "skills",
+  "name": "@parlance-labs/skills",
   "version": "1.5.11",
-  "description": "The open agent skills ecosystem",
+  "description": "Parlance Labs Private Skills CLI",
   "type": "module",
   "bin": {
     "skills": "./bin/cli.mjs",
@@ -110,11 +110,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/skills.git"
+    "url": "git+https://github.com/parlance-labs/skills.git"
   },
-  "homepage": "https://github.com/vercel-labs/skills#readme",
+  "homepage": "https://github.com/parlance-labs/skills#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/skills/issues"
+    "url": "https://github.com/parlance-labs/skills/issues"
   },
   "author": "",
   "license": "MIT",
