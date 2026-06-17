@@ -140,8 +140,8 @@ export function resetGhAuthWarning(): void {
  *    stderr before invoking `gh auth token`, because that subprocess call
  *    is flagged by some corporate endpoint security tooling (Defender, etc.)
  *    as credential extraction. Callers should invoke this function lazily
- *    (e.g. only after an unauthenticated request hits a rate limit) so the
- *    fallback rarely runs in practice.
+ *    (e.g. only after an unauthenticated request fails — rate limit or
+ *    private-repo access) so the fallback rarely runs in practice.
  *
  * @returns The token string or null if not available
  */
@@ -157,7 +157,7 @@ export function getGitHubToken(): string | null {
   // Last resort: spawn gh CLI. Warn the user once per process before doing so.
   if (!_ghWarningShown) {
     process.stderr.write(
-      `${pc.yellow('│')}  ${pc.yellow('GitHub rate limit reached')} — using your ${pc.cyan('gh')} login to continue.\n` +
+      `${pc.yellow('│')}  ${pc.yellow('Authenticating with GitHub')} — using your ${pc.cyan('gh')} login to continue.\n` +
         `${pc.yellow('│')}  ${pc.dim(`Tip: set ${pc.cyan('GITHUB_TOKEN')} to avoid this prompt, or use ${pc.cyan('--full-depth')} to clone instead.\n`)}`
     );
     _ghWarningShown = true;
