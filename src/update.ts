@@ -22,7 +22,11 @@ import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
 import { isRunningInAgent } from './detect-agent.ts';
-import { fetchRegistryInstall, isRegistryMediatedParsedSource } from './registry.ts';
+import {
+  fetchRegistryInstall,
+  isRegistryMediatedParsedSource,
+  RegistryInstallError,
+} from './registry.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -252,6 +256,17 @@ export function printSkippedSkills(skipped: SkippedSkill[]): void {
       console.log(`  ${TEXT}•${RESET} ${names} ${DIM}(${reason})${RESET}`);
     }
     console.log(`    ${DIM}To update: ${TEXT}npx skills add ${source} -g -y${RESET}`);
+  }
+}
+
+function printCommandFailureOutput(result: {
+  stdout?: string | null;
+  stderr?: string | null;
+}): void {
+  const details = (result.stderr || result.stdout || '').trim();
+  if (!details) return;
+  for (const line of details.split('\n').slice(-8)) {
+    console.log(`    ${DIM}${line}${RESET}`);
   }
 }
 
@@ -493,7 +508,8 @@ export async function updateGlobalSkills(
         }
       }
     } catch (error) {
-      console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
+      const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
+      console.log(`  ${DIM}✗ Failed to check skills from ${source}${details}${RESET}`);
     } finally {
       if (tempDir) await cleanupTempDir(tempDir);
     }
@@ -557,6 +573,7 @@ export async function updateGlobalSkills(
     } else {
       failCount++;
       console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      printCommandFailureOutput(result);
     }
   }
 
@@ -673,7 +690,8 @@ export async function updateProjectSkills(
         discoveredPaths
       );
     } catch (error) {
-      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
+      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${details}${RESET}`);
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
@@ -705,6 +723,7 @@ export async function updateProjectSkills(
       } else {
         failCount++;
         console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+        printCommandFailureOutput(result);
       }
     }
   }

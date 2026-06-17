@@ -1,7 +1,7 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { track } from './telemetry.ts';
+import { isCustomTelemetryEndpoint, track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { getRegistryAuthHeaders, getRegistryBaseUrl } from './registry.ts';
@@ -30,6 +30,16 @@ export interface SearchSkill {
   commitCount?: number;
 }
 
+export class SearchSkillsAPIError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'SearchSkillsAPIError';
+    this.status = status;
+  }
+}
+
 function formatLastCommit(iso?: string): string {
   if (!iso) return '';
   const then = new Date(iso).getTime();
@@ -54,6 +64,15 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
   try {
     const url = `${getRegistryBaseUrl()}/api/search?q=${encodeURIComponent(query)}&limit=10`;
     const res = await fetch(url, { headers: getRegistryAuthHeaders() });
+
+    if (res.status === 401 || res.status === 403) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new SearchSkillsAPIError(
+        data?.error ||
+          `Registry denied search (${res.status}). Check SKILLS_REGISTRY_TOKEN and the registry allowlist.`,
+        res.status
+      );
+    }
 
     if (!res.ok) return [];
 
@@ -81,9 +100,19 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
         commitCount: typeof skill.commitCount === 'number' ? skill.commitCount : undefined,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
-  } catch {
+  } catch (error) {
+    if (error instanceof SearchSkillsAPIError) throw error;
     return [];
   }
+}
+
+function trackFind(data: { query: string; resultCount: string; interactive?: '1' }): void {
+  track({
+    event: 'find',
+    query: isCustomTelemetryEndpoint() ? data.query : '',
+    resultCount: data.resultCount,
+    ...(data.interactive && { interactive: data.interactive }),
+  });
 }
 
 // ANSI escape codes for terminal control
@@ -99,6 +128,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
   let selectedIndex = 0;
   let query = initialQuery;
   let loading = false;
+  let error: string | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastRenderedLines = 0;
 
@@ -135,6 +165,8 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     // Results - keep showing existing results while loading new ones
     if (!query || query.length < 2) {
       lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
+    } else if (error) {
+      lines.push(`${YELLOW}${error}${RESET}`);
     } else if (results.length === 0 && loading) {
       lines.push(`${DIM}Searching...${RESET}`);
     } else if (results.length === 0) {
@@ -181,6 +213,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
 
     // Always reset loading state when starting a new search
     loading = false;
+    error = null;
 
     if (!q || q.length < 2) {
       results = [];
@@ -201,8 +234,14 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
       try {
         results = await searchSkillsAPI(q);
         selectedIndex = 0;
-      } catch {
+      } catch (err) {
         results = [];
+        if (err instanceof SearchSkillsAPIError) {
+          error = err.message;
+        } else {
+          error = null;
+        }
+        selectedIndex = 0;
       } finally {
         loading = false;
         debounceTimer = null;
@@ -307,11 +346,22 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query);
+    let results: SearchSkill[];
+    try {
+      results = await searchSkillsAPI(query);
+    } catch (error) {
+      if (error instanceof SearchSkillsAPIError) {
+        console.log(`${YELLOW}${error.message}${RESET}`);
+        process.exitCode = 1;
+        return;
+      }
+      throw error;
+    }
 
-    // Track telemetry for non-interactive search
-    track({
-      event: 'find',
+    // Track counts by default, but never send raw queries to the public
+    // telemetry endpoint. Operators who configure their own endpoint own that
+    // data, so they can receive the query text for debugging/product analytics.
+    trackFind({
       query,
       resultCount: String(results.length),
     });
@@ -350,8 +400,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const selected = await runSearchPrompt();
 
   // Track telemetry for interactive search
-  track({
-    event: 'find',
+  trackFind({
     query: '',
     resultCount: selected ? '1' : '0',
     interactive: '1',

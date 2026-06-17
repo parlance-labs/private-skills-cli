@@ -211,7 +211,11 @@ function toBlobSkill(
 
 export async function fetchRegistryInstall(
   ownerRepo: string,
-  options: { subpath?: string; includeInternal?: boolean } = {}
+  options: {
+    subpath?: string;
+    includeInternal?: boolean;
+    skillFilter?: string | string[];
+  } = {}
 ): Promise<RegistryInstallResult> {
   if (!isTwoPartOwnerRepo(ownerRepo)) {
     throw new RegistryInstallError(
@@ -219,7 +223,10 @@ export async function fetchRegistryInstall(
     );
   }
 
-  const records = await fetchRegistryRecords(ownerRepo, options.subpath);
+  const records = filterRegistryRecords(
+    await fetchRegistryRecords(ownerRepo, options.subpath),
+    options.skillFilter
+  );
   if (records.length === 0) {
     throw new RegistryInstallError(`No registry skills found for ${ownerRepo}.`);
   }
@@ -244,4 +251,31 @@ export async function fetchRegistryInstall(
   });
 
   return { skills, registryUrl: getRegistryBaseUrl() };
+}
+
+function filterRegistryRecords(
+  records: RegistrySkillRecord[],
+  skillFilter?: string | string[]
+): RegistrySkillRecord[] {
+  const filters = (Array.isArray(skillFilter) ? skillFilter : skillFilter ? [skillFilter] : [])
+    .map((s) => s.trim())
+    .filter((s) => s && s !== '*');
+  if (filters.length === 0) return records;
+
+  const lowerFilters = filters.map((s) => s.toLowerCase());
+  const slugFilters = filters.map((s) => toSkillSlug(s));
+
+  return records.filter((record) => {
+    const candidates = [
+      record.skillId,
+      record.name,
+      record.skillPath ? basename(dirname(record.skillPath)) : '',
+    ].filter(Boolean);
+
+    return candidates.some((candidate) => {
+      const lower = candidate.toLowerCase();
+      const slug = toSkillSlug(candidate);
+      return lowerFilters.includes(lower) || (slug !== '' && slugFilters.includes(slug));
+    });
+  });
 }

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { searchSkillsAPI } from './find.ts';
+import { searchSkillsAPI, SearchSkillsAPIError } from './find.ts';
 
-function mockFetchOnce(payload: unknown, ok = true): void {
+function mockFetchOnce(payload: unknown, ok = true, status = ok ? 200 : 500): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({
       ok,
+      status,
       json: async () => payload,
     }))
   );
@@ -75,6 +76,7 @@ describe('searchSkillsAPI', () => {
     process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
     const fetchMock = vi.fn(async () => ({
       ok: true,
+      status: 200,
       json: async () => ({ skills: [] }),
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -85,5 +87,15 @@ describe('searchSkillsAPI', () => {
       'https://registry.example.com/api/search?q=code&limit=10',
       { headers: { Authorization: 'Bearer secret-token' } }
     );
+  });
+
+  it('surfaces registry auth failures instead of treating them as empty results', async () => {
+    mockFetchOnce({ error: 'Forbidden: token owner is not allowed.' }, false, 403);
+
+    await expect(searchSkillsAPI('private-query')).rejects.toMatchObject({
+      name: 'SearchSkillsAPIError',
+      status: 403,
+      message: 'Forbidden: token owner is not allowed.',
+    } satisfies Partial<SearchSkillsAPIError>);
   });
 });

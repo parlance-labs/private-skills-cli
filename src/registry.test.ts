@@ -168,4 +168,69 @@ describe('fetchRegistryInstall', () => {
       })
     ).rejects.toThrow('No registry skills found for parlance-labs/private-skills.');
   });
+
+  it('downloads only records matching the requested skill filter', async () => {
+    process.env.SKILLS_REGISTRY_URL = 'https://registry.example.com';
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url === 'https://registry.example.com/api/skills') {
+        return new Response(
+          JSON.stringify({
+            skills: [
+              {
+                id: 'parlance-labs/private-skills/code-review',
+                skillId: 'code-review',
+                name: 'Code Review',
+                description: 'Review code',
+                source: 'parlance-labs/private-skills',
+                skillPath: 'skills/code-review/SKILL.md',
+              },
+              {
+                id: 'parlance-labs/private-skills/prompt-engineering',
+                skillId: 'prompt-engineering',
+                name: 'Prompt Engineering',
+                description: 'Write prompts',
+                source: 'parlance-labs/private-skills',
+                skillPath: 'skills/prompt-engineering/SKILL.md',
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (
+        url === 'https://registry.example.com/api/download/parlance-labs/private-skills/code-review'
+      ) {
+        return new Response(
+          JSON.stringify({
+            hash: 'snapshot-hash',
+            files: [
+              {
+                path: 'SKILL.md',
+                contents: '---\nname: Code Review\ndescription: Review code\n---\nBody\n',
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response('{}', { status: 500 });
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await fetchRegistryInstall('parlance-labs/private-skills', {
+      skillFilter: 'code-review',
+    });
+
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0]!.name).toBe('Code Review');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+      'https://registry.example.com/api/download/parlance-labs/private-skills/prompt-engineering'
+    );
+  });
 });

@@ -251,6 +251,7 @@ export async function runUse(
         const registryResult = await fetchRegistryInstall(ownerRepoRaw, {
           subpath: parsed.subpath,
           includeInternal,
+          skillFilter: selector,
         });
         skills = registryResult.skills;
       } else if (parsed.type === 'github' && !options.fullDepth) {

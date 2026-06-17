@@ -172,6 +172,35 @@ description: Test OpenCode global attribution
     expect(skills[0]!.name).toBe('test-skill');
   });
 
+  it('does not include non-filtered agent-specific directories when an agent filter is set', async () => {
+    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue([]);
+
+    const claudeSkillDir = join(testDir, '.claude', 'skills', 'claude-only');
+    await mkdir(claudeSkillDir, { recursive: true });
+    await writeFile(
+      join(claudeSkillDir, 'SKILL.md'),
+      `---
+name: claude-only
+description: Claude-only skill
+---
+
+# claude-only
+`
+    );
+
+    const unfiltered = await listInstalledSkills({ global: false, cwd: testDir });
+    const filtered = await listInstalledSkills({
+      global: false,
+      cwd: testDir,
+      agentFilter: ['cursor'],
+    });
+
+    expect(unfiltered.map((s) => s.name)).toContain('claude-only');
+    expect(filtered.map((s) => s.name)).not.toContain('claude-only');
+
+    vi.restoreAllMocks();
+  });
+
   // Issue #225 part 1: Only installed agents should be attributed
   it('should only attribute skills to installed agents (issue #225)', async () => {
     // Mock: only Amp is installed (not Kimi, even though they share .agents/skills)

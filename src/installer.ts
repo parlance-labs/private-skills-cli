@@ -643,8 +643,8 @@ export async function listInstalledSkills(
     // skills were installed with `--agent <name>` but the agent is no longer
     // detected (e.g. ~/.openclaw was removed).  Only add dirs that actually
     // exist on disk to avoid unnecessary readdir errors.
-    const allAgentTypes = Object.keys(agents) as AgentType[];
-    for (const agentType of allAgentTypes) {
+    const fallbackAgentTypes = agentFilter ?? (Object.keys(agents) as AgentType[]);
+    for (const agentType of fallbackAgentTypes) {
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;

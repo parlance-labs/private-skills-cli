@@ -1109,6 +1109,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       registryResult = await fetchRegistryInstall(ownerRepoRaw, {
         subpath: parsed.subpath,
         includeInternal,
+        skillFilter: options.skill?.includes('*') ? undefined : options.skill,
       });
       skills = registryResult.skills;
       spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
