@@ -1,11 +1,11 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
-import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
+import { formatList, shortenPath } from './cli-format.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -166,34 +166,6 @@ function buildSecurityLines(
   lines.push(`${pc.dim('Details:')} ${pc.dim(`https://skills.parlance-labs.com/${source}`)}`);
 
   return lines;
-}
-
-/**
- * Shortens a path for display: replaces homedir with ~ and cwd with .
- * Handles both Unix and Windows path separators.
- */
-function shortenPath(fullPath: string, cwd: string): string {
-  const home = homedir();
-  // Ensure we match complete path segments by checking for separator after the prefix
-  if (fullPath === home || fullPath.startsWith(home + sep)) {
-    return '~' + fullPath.slice(home.length);
-  }
-  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
-    return '.' + fullPath.slice(cwd.length);
-  }
-  return fullPath;
-}
-
-/**
- * Formats a list of items, truncating if too many
- */
-function formatList(items: string[], maxShow: number = 5): string {
-  if (items.length <= maxShow) {
-    return items.join(', ');
-  }
-  const shown = items.slice(0, maxShow);
-  const remaining = items.length - maxShow;
-  return `${shown.join(', ')} +${remaining} more`;
 }
 
 /**
@@ -687,7 +659,6 @@ async function handleWellKnownSkills(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
 
   // Check if any skill will be overwritten (parallel)
   const overwriteChecks = await Promise.all(
@@ -1407,7 +1378,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Build installation summary
     const summaryLines: string[] = [];
-    const agentNames = targetAgents.map((a) => agents[a].displayName);
 
     // Check if any skill will be overwritten (parallel)
     const overwriteChecks = await Promise.all(

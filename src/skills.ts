@@ -6,6 +6,11 @@ import { toSkillSlug } from './slug.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import {
+  AGENT_PROJECT_SKILL_DIRS,
+  PRIORITY_SKILL_DIRS,
+  SKIP_DIR_SET,
+} from './skill-discovery-paths.ts';
 
 /** Shape of the YAML frontmatter in a SKILL.md file. */
 interface SkillFrontmatter {
@@ -21,34 +26,6 @@ interface SkillFrontmatter {
 function asSkillFrontmatter(data: Record<string, unknown>): SkillFrontmatter {
   return data as SkillFrontmatter;
 }
-
-const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
-
-const AGENT_PROJECT_SKILL_DIRS = [
-  '.agents/skills',
-  '.claude/skills',
-  '.cline/skills',
-  '.codebuddy/skills',
-  '.codex/skills',
-  '.commandcode/skills',
-  '.continue/skills',
-  '.github/skills',
-  '.goose/skills',
-  '.iflow/skills',
-  '.junie/skills',
-  '.kilocode/skills',
-  '.kiro/skills',
-  '.mux/skills',
-  '.neovate/skills',
-  '.opencode/skills',
-  '.openhands/skills',
-  '.pi/skills',
-  '.qoder/skills',
-  '.roo/skills',
-  '.trae/skills',
-  '.windsurf/skills',
-  '.zencoder/skills',
-];
 
 function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');
@@ -130,7 +107,7 @@ async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<stri
     // Search subdirectories in parallel
     const subDirResults = await Promise.all(
       entries
-        .filter((entry) => entry.isDirectory() && !SKIP_DIRS.includes(entry.name))
+        .filter((entry) => entry.isDirectory() && !SKIP_DIR_SET.has(entry.name))
         .map((entry) => findSkillDirs(join(dir, entry.name), depth + 1, maxDepth))
     );
 
@@ -224,14 +201,9 @@ export async function discoverSkills(
   }
 
   // Search common skill locations first
-  const prioritySearchDirs = [
-    searchPath,
-    join(searchPath, 'skills'),
-    join(searchPath, 'skills/.curated'),
-    join(searchPath, 'skills/.experimental'),
-    join(searchPath, 'skills/.system'),
-    ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
-  ];
+  const prioritySearchDirs = PRIORITY_SKILL_DIRS.map((dir) =>
+    dir ? join(searchPath, dir) : searchPath
+  );
 
   // Known skill container dirs are walked one extra level deep so layouts
   // like `skills/<category>/<skill>/SKILL.md` are discovered without
@@ -271,13 +243,13 @@ export async function discoverSkills(
         // flat-layout semantics) and don't go deeper inside non-container
         // priority dirs.
         if (foundAtChild || !walkDeep) continue;
-        if (SKIP_DIRS.includes(entry.name)) continue;
+        if (SKIP_DIR_SET.has(entry.name)) continue;
 
         // Walk one extra level for catalog layouts.
         try {
           const grandEntries = await readdir(childDir, { withFileTypes: true });
           for (const grand of grandEntries) {
-            if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
+            if (!grand.isDirectory() || SKIP_DIR_SET.has(grand.name)) continue;
             await tryAddSkillAt(join(childDir, grand.name));
           }
         } catch {

@@ -14,6 +14,7 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { toSkillSlug } from './slug.ts';
 import type { Skill } from './types.ts';
+import { PRIORITY_SKILL_PREFIXES, SKIP_DIR_SET } from './skill-discovery-paths.ts';
 
 // ─── Types ───
 
@@ -235,38 +236,6 @@ export function getSkillFolderHashFromTree(tree: RepoTree, skillPath: string): s
 
 // ─── Skill discovery from tree ───
 
-/** Known directories where SKILL.md files are commonly found (relative to repo root) */
-const PRIORITY_PREFIXES = [
-  '',
-  'skills/',
-  'skills/.curated/',
-  'skills/.experimental/',
-  'skills/.system/',
-  '.agents/skills/',
-  '.claude/skills/',
-  '.cline/skills/',
-  '.codebuddy/skills/',
-  '.codex/skills/',
-  '.commandcode/skills/',
-  '.continue/skills/',
-  '.github/skills/',
-  '.goose/skills/',
-  '.iflow/skills/',
-  '.junie/skills/',
-  '.kilocode/skills/',
-  '.kiro/skills/',
-  '.mux/skills/',
-  '.neovate/skills/',
-  '.opencode/skills/',
-  '.openhands/skills/',
-  '.pi/skills/',
-  '.qoder/skills/',
-  '.roo/skills/',
-  '.trae/skills/',
-  '.windsurf/skills/',
-  '.zencoder/skills/',
-];
-
 /**
  * Find all SKILL.md file paths in a repo tree.
  * Applies the same priority directory logic as discoverSkills().
@@ -291,12 +260,9 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
   // in sync with the on-disk walk's catalog-layout discovery.
   const priorityResults: string[] = [];
   const seen = new Set<string>();
-  // Mirror of SKIP_DIRS at the top of src/skills.ts. Kept local to avoid
-  // a cross-file import; if these ever drift, update both.
-  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__']);
   const lowerSkillMdSet = new Set(filtered.map((p) => p.toLowerCase()));
 
-  for (const priorityPrefix of PRIORITY_PREFIXES) {
+  for (const priorityPrefix of PRIORITY_SKILL_PREFIXES) {
     const fullPrefix = prefix + priorityPrefix;
     const isContainer = priorityPrefix !== '';
 
@@ -332,8 +298,8 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
         isContainer &&
         parts.length === 3 &&
         parts[2]!.toLowerCase() === 'skill.md' &&
-        !SKIP_DIRS.has(parts[0]!) &&
-        !SKIP_DIRS.has(parts[1]!)
+        !SKIP_DIR_SET.has(parts[0]!) &&
+        !SKIP_DIR_SET.has(parts[1]!)
       ) {
         const parentSkillMd = `${fullPrefix}${parts[0]}/SKILL.md`.toLowerCase();
         if (!lowerSkillMdSet.has(parentSkillMd) && !seen.has(skillMd)) {

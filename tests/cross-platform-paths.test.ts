@@ -7,20 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { sep } from 'path';
-
-/**
- * Simulates the shortenPath function from add.ts (cross-platform version)
- */
-function shortenPath(fullPath: string, cwd: string, home: string, pathSep: string): string {
-  // Ensure we match complete path segments by checking for separator after the prefix
-  if (fullPath === home || fullPath.startsWith(home + pathSep)) {
-    return '~' + fullPath.slice(home.length);
-  }
-  if (fullPath === cwd || fullPath.startsWith(cwd + pathSep)) {
-    return '.' + fullPath.slice(cwd.length);
-  }
-  return fullPath;
-}
+import { shortenPath } from '../src/cli-format.ts';
 
 /**
  * Simulates the path validation from wellknown.ts

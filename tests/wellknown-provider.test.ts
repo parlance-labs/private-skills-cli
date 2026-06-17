@@ -148,18 +148,6 @@ describe('WellKnownProvider', () => {
     });
   });
 
-  describe('isValidSkillEntry (via fetchIndex validation)', () => {
-    // Since isValidSkillEntry is private, we test it indirectly through the provider's behavior
-
-    it('provider should have id "well-known"', () => {
-      expect(provider.id).toBe('well-known');
-    });
-
-    it('provider should have display name "Well-Known Skills"', () => {
-      expect(provider.displayName).toBe('Well-Known Skills');
-    });
-  });
-
   describe('fetchAllSkills', () => {
     it('keeps supporting legacy files[] indexes', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {

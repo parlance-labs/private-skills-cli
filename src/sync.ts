@@ -1,8 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, stat } from 'fs/promises';
-import { join, sep } from 'path';
-import { homedir } from 'os';
+import { join } from 'path';
 import { parseSkillMd } from './skills.ts';
 import { installSkillForAgent, getCanonicalPath } from './installer.ts';
 import {
@@ -17,6 +16,7 @@ import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './lo
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
+import { shortenPath } from './cli-format.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -24,20 +24,6 @@ export interface SyncOptions {
   agent?: string[];
   yes?: boolean;
   force?: boolean;
-}
-
-/**
- * Shortens a path for display: replaces homedir with ~ and cwd with .
- */
-function shortenPath(fullPath: string, cwd: string): string {
-  const home = homedir();
-  if (fullPath === home || fullPath.startsWith(home + sep)) {
-    return '~' + fullPath.slice(home.length);
-  }
-  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
-    return '.' + fullPath.slice(cwd.length);
-  }
-  return fullPath;
 }
 
 /**
