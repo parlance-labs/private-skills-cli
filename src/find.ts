@@ -28,6 +28,27 @@ export interface SearchSkill {
   slug: string;
   source: string;
   installs: number;
+  lastCommitDate?: string;
+  commitCount?: number;
+}
+
+function formatLastCommit(iso?: string): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  if (diffMs < 0) return '';
+  const day = 86_400_000;
+  const days = Math.floor(diffMs / day);
+  if (days < 1) return 'updated today';
+  if (days < 30) return `updated ${days}d ago`;
+  if (days < 365) return `updated ${Math.floor(days / 30)}mo ago`;
+  return `updated ${Math.floor(days / 365)}y ago`;
+}
+
+function formatCommits(count?: number): string {
+  if (!count || count <= 0) return '';
+  return `${count} commit${count === 1 ? '' : 's'}`;
 }
 
 // Search via API
@@ -44,6 +65,8 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
         name: string;
         installs: number;
         source: string;
+        lastCommitDate?: string;
+        commitCount?: number;
       }>;
     };
 
@@ -53,6 +76,11 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
         slug: sanitizeMetadata(skill.id),
         source: sanitizeMetadata(skill.source || ''),
         installs: skill.installs,
+        lastCommitDate:
+          typeof skill.lastCommitDate === 'string'
+            ? sanitizeMetadata(skill.lastCommitDate)
+            : undefined,
+        commitCount: typeof skill.commitCount === 'number' ? skill.commitCount : undefined,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
   } catch {
@@ -125,9 +153,13 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
         const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
         const installs = formatInstalls(skill.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
+        const meta = [formatCommits(skill.commitCount), formatLastCommit(skill.lastCommitDate)]
+          .filter(Boolean)
+          .join(' · ');
+        const metaBadge = meta ? ` ${DIM}${meta}${RESET}` : '';
         const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
 
-        lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
+        lines.push(`  ${arrow} ${name}${source}${installsBadge}${metaBadge}${loadingIndicator}`);
       }
     }
 
@@ -297,8 +329,11 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     for (const skill of results.slice(0, 6)) {
       const pkg = skill.source || skill.slug;
       const installs = formatInstalls(skill.installs);
+      const meta = [formatCommits(skill.commitCount), formatLastCommit(skill.lastCommitDate)]
+        .filter(Boolean)
+        .join(' · ');
       console.log(
-        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
+        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}${meta ? ` ${DIM}${meta}${RESET}` : ''}`
       );
       console.log(`${DIM}└ https://skills.parlance-labs.com/${skill.slug}${RESET}`);
       console.log();

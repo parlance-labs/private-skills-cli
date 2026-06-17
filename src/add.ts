@@ -1529,6 +1529,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
       if (parsed.type === 'github' && !blobResult) {
         cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
+        // A truncated tree may be missing the skill's folder entry, which would
+        // yield an empty (untrackable) folder hash. Drop it so the loop below
+        // falls back to computing the hash from the cloned files instead.
+        if (cachedTree?.truncated) cachedTree = undefined;
       }
 
       for (const skill of selectedSkills) {

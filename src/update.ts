@@ -355,33 +355,42 @@ export async function updateGlobalSkills(
           continue;
         }
 
-        const discoveredPaths = findSkillMdPaths(tree);
+        // A truncated tree is an incomplete file listing: skills may be missing
+        // from it, which would corrupt deletion detection and folder-hash
+        // comparisons. Fall through to the clone path, which sees every file.
+        if (tree.truncated) {
+          console.log(
+            `  ${DIM}⚠ Tree listing for ${source} was truncated by GitHub; cloning for an accurate check${RESET}`
+          );
+        } else {
+          const discoveredPaths = findSkillMdPaths(tree);
 
-        const allLockedForSource = Object.entries(lock.skills)
-          .filter(([_, entry]) => entry.source === source)
-          .map(([name, _]) => name);
+          const allLockedForSource = Object.entries(lock.skills)
+            .filter(([_, entry]) => entry.source === source)
+            .map(([name, _]) => name);
 
-        const deletedSkills = await checkAndPromptForDeletions(
-          source,
-          allLockedForSource,
-          lock.skills,
-          true,
-          options,
-          discoveredPaths
-        );
+          const deletedSkills = await checkAndPromptForDeletions(
+            source,
+            allLockedForSource,
+            lock.skills,
+            true,
+            options,
+            discoveredPaths
+          );
 
-        const deletedSkillSet = new Set(deletedSkills);
+          const deletedSkillSet = new Set(deletedSkills);
 
-        for (const { name: skillName, entry } of itemsForSource) {
-          if (deletedSkillSet.has(skillName)) continue;
+          for (const { name: skillName, entry } of itemsForSource) {
+            if (deletedSkillSet.has(skillName)) continue;
 
-          const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
-          if (latestHash && latestHash !== entry.skillFolderHash) {
-            updates.push({ name: skillName, source, entry });
+            const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+            if (latestHash && latestHash !== entry.skillFolderHash) {
+              updates.push({ name: skillName, source, entry });
+            }
           }
-        }
 
-        continue;
+          continue;
+        }
       }
 
       tempDir = await cloneRepo(sourceUrl, firstEntry.ref);

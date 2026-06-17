@@ -90,6 +90,14 @@ export interface RepoTree {
   sha: string;
   branch: string;
   tree: TreeEntry[];
+  /**
+   * GitHub caps recursive tree responses (~100k entries / 7MB) and sets this
+   * flag when the listing is incomplete. A truncated tree may be missing
+   * SKILL.md paths or folder entries, so callers must not treat it as the
+   * authoritative file list (e.g. for deletion detection) and should fall
+   * back to a clone where correctness matters.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -117,7 +125,8 @@ async function fetchTreeBranch(
   try {
     const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
-      Accept: 'application/vnd.github.v3+json',
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'skills-cli',
     };
     if (token) {
@@ -133,9 +142,10 @@ async function fetchTreeBranch(
       const data = (await response.json()) as {
         sha: string;
         tree: TreeEntry[];
+        truncated?: boolean;
       };
       return {
-        tree: { sha: data.sha, branch, tree: data.tree },
+        tree: { sha: data.sha, branch, tree: data.tree, truncated: data.truncated === true },
         rateLimited: false,
       };
     }
@@ -405,7 +415,7 @@ export async function tryBlobInstall(
 ): Promise<BlobInstallResult | null> {
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
-  if (!tree) return null;
+  if (!tree || tree.truncated) return null;
 
   // 2. Discover SKILL.md paths in the tree
   let skillMdPaths = findSkillMdPaths(tree, options.subpath);
