@@ -217,4 +217,16 @@ describe('findSkillMdPaths — bounded depth-2 inside skill container prefixes',
 
     expect(findSkillMdPaths(tree, 'skills')).toEqual(['skills/category/in-scope/SKILL.md']);
   });
+
+  it('matches the exact SKILL.md basename, not files merely ending in skill.md', () => {
+    // Regression: endsWith('skill.md') let "MYSKILL.md" / "NOT-A-SKILL.md" leak
+    // through the deep-fallback branch. Basename equality must reject them.
+    const tree = makeTree([
+      'lib/decoy/MYSKILL.md',
+      'lib/decoy/NOT-A-SKILL.md',
+      'lib/real/SKILL.md',
+    ]);
+
+    expect(findSkillMdPaths(tree)).toEqual(['lib/real/SKILL.md']);
+  });
 });

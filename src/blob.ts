@@ -242,9 +242,13 @@ export function getSkillFolderHashFromTree(tree: RepoTree, skillPath: string): s
  * If subpath is set, only searches within that subtree.
  */
 export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
-  // Find all blob entries that are SKILL.md files (case-insensitive)
+  // Find all blob entries whose basename is exactly SKILL.md (case-insensitive
+  // about the casing, but matched on the full basename — not a suffix). Using
+  // endsWith('skill.md') here would wrongly match "MYSKILL.md" / "NOT-A-SKILL.md".
   const allSkillMds = tree.tree
-    .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
+    .filter(
+      (e) => e.type === 'blob' && (e.path.split('/').pop() ?? '').toLowerCase() === 'skill.md'
+    )
     .map((e) => e.path);
 
   // Apply subpath filter
