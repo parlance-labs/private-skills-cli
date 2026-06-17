@@ -38,6 +38,22 @@ describe('isRegistryMediatedSource', () => {
     process.env.SKILLS_REGISTRY_SOURCES = 'acme/private-skills';
     expect(isRegistryMediatedSource('acme/private-skills')).toBe(true);
   });
+
+  it('mediates all GitHub sources when registry auth is configured and no source list narrows it', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(isRegistryMediatedSource('acme/runtime-added-source')).toBe(true);
+    expect(isRegistryMediatedSource('vercel-labs/agent-skills')).toBe(true);
+  });
+
+  it('respects an explicit registry source list even when a registry token is configured', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+    process.env.SKILLS_REGISTRY_SOURCES = 'acme/private-skills';
+
+    expect(isRegistryMediatedSource('parlance-labs/private-skills')).toBe(true);
+    expect(isRegistryMediatedSource('acme/private-skills')).toBe(true);
+    expect(isRegistryMediatedSource('vercel-labs/agent-skills')).toBe(false);
+  });
 });
 
 describe('isRegistryMediatedParsedSource', () => {

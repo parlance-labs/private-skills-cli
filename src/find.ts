@@ -4,7 +4,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { isCustomTelemetryEndpoint, track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
-import { getRegistryAuthHeaders, getRegistryBaseUrl } from './registry.ts';
+import { getRegistryAuthHeaders, getRegistryBaseUrl, getRegistryToken } from './registry.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -62,21 +62,32 @@ function formatCommits(count?: number): string {
 // Search via API
 export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
   try {
-    const url = `${getRegistryBaseUrl()}/api/search?q=${encodeURIComponent(query)}&limit=10`;
-    const res = await fetch(url, { headers: getRegistryAuthHeaders() });
-
-    if (res.status === 401 || res.status === 403) {
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!getRegistryToken()) {
       throw new SearchSkillsAPIError(
-        data?.error ||
-          `Registry denied search (${res.status}). Check SKILLS_REGISTRY_TOKEN and the registry allowlist.`,
+        'Registry search requires SKILLS_REGISTRY_TOKEN. Set it to a token for an allowed registry user.'
+      );
+    }
+
+    const url = `${getRegistryBaseUrl()}/api/search?q=${encodeURIComponent(query)}&limit=10`;
+    const res = await fetch(url, { headers: getRegistryAuthHeaders(), redirect: 'manual' });
+
+    if (res.status >= 300 && res.status < 400) {
+      throw new SearchSkillsAPIError(
+        `Registry redirected search (${res.status}) instead of returning JSON. Check SKILLS_REGISTRY_TOKEN and the registry allowlist.`,
         res.status
       );
     }
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new SearchSkillsAPIError(
+        data?.error ||
+          `Registry search failed (${res.status}). Check SKILLS_REGISTRY_TOKEN and the registry allowlist.`,
+        res.status
+      );
+    }
 
-    const data = (await res.json()) as {
+    const data = (await res.json().catch(() => null)) as {
       skills: Array<{
         id: string;
         name: string;
@@ -85,7 +96,13 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
         lastCommitDate?: string;
         commitCount?: number;
       }>;
-    };
+    } | null;
+
+    if (!data || !Array.isArray(data.skills)) {
+      throw new SearchSkillsAPIError(
+        'Registry returned an invalid search response. Check SKILLS_REGISTRY_TOKEN and the registry URL.'
+      );
+    }
 
     return data.skills
       .map((skill) => ({

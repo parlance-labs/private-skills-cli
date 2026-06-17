@@ -68,11 +68,20 @@ export function getRegistryAuthHeaders(): Record<string, string> {
 
 export function isRegistryMediatedSource(ownerRepo: string): boolean {
   const source = ownerRepo.toLowerCase();
-  const configured = new Set([
-    ...DEFAULT_REGISTRY_SOURCES,
-    ...parseList(process.env.SKILLS_REGISTRY_SOURCES),
-  ]);
-  return configured.has('*') || configured.has(source);
+  const configuredSources = parseList(process.env.SKILLS_REGISTRY_SOURCES);
+  const configured = new Set([...DEFAULT_REGISTRY_SOURCES, ...configuredSources]);
+  if (configured.has('*') || configured.has(source)) return true;
+
+  // In a managed private-registry environment, fail closed for GitHub sources
+  // unless the operator explicitly narrows mediation with SKILLS_REGISTRY_SOURCES.
+  if (
+    configuredSources.length === 0 &&
+    (getRegistryToken() || process.env.SKILLS_REGISTRY_URL || process.env.SKILLS_API_URL)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function isTwoPartOwnerRepo(ownerRepo: string): boolean {

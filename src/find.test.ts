@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchSkillsAPI, SearchSkillsAPIError } from './find.ts';
 
 function mockFetchOnce(payload: unknown, ok = true, status = ok ? 200 : 500): void {
@@ -12,6 +12,10 @@ function mockFetchOnce(payload: unknown, ok = true, status = ok ? 200 : 500): vo
   );
 }
 
+beforeEach(() => {
+  process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.SKILLS_REGISTRY_URL;
@@ -21,6 +25,16 @@ afterEach(() => {
 });
 
 describe('searchSkillsAPI', () => {
+  it('requires a registry token instead of following Clerk redirects as anonymous search', async () => {
+    delete process.env.SKILLS_REGISTRY_TOKEN;
+
+    await expect(searchSkillsAPI('private-query')).rejects.toMatchObject({
+      name: 'SearchSkillsAPIError',
+      message:
+        'Registry search requires SKILLS_REGISTRY_TOKEN. Set it to a token for an allowed registry user.',
+    } satisfies Partial<SearchSkillsAPIError>);
+  });
+
   it('parses lastCommitDate and commitCount when present', async () => {
     mockFetchOnce({
       skills: [
@@ -85,7 +99,7 @@ describe('searchSkillsAPI', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://registry.example.com/api/search?q=code&limit=10',
-      { headers: { Authorization: 'Bearer secret-token' } }
+      { headers: { Authorization: 'Bearer secret-token' }, redirect: 'manual' }
     );
   });
 
@@ -96,6 +110,27 @@ describe('searchSkillsAPI', () => {
       name: 'SearchSkillsAPIError',
       status: 403,
       message: 'Forbidden: token owner is not allowed.',
+    } satisfies Partial<SearchSkillsAPIError>);
+  });
+
+  it('surfaces auth redirects instead of treating them as empty results', async () => {
+    mockFetchOnce('', false, 302);
+
+    await expect(searchSkillsAPI('private-query')).rejects.toMatchObject({
+      name: 'SearchSkillsAPIError',
+      status: 302,
+      message:
+        'Registry redirected search (302) instead of returning JSON. Check SKILLS_REGISTRY_TOKEN and the registry allowlist.',
+    } satisfies Partial<SearchSkillsAPIError>);
+  });
+
+  it('surfaces invalid registry JSON instead of treating it as empty results', async () => {
+    mockFetchOnce(null);
+
+    await expect(searchSkillsAPI('private-query')).rejects.toMatchObject({
+      name: 'SearchSkillsAPIError',
+      message:
+        'Registry returned an invalid search response. Check SKILLS_REGISTRY_TOKEN and the registry URL.',
     } satisfies Partial<SearchSkillsAPIError>);
   });
 });
