@@ -10,6 +10,7 @@ import { sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
+import { fetchRegistryInstall, isRegistryMediatedParsedSource } from './registry.ts';
 import type { AgentType, Skill } from './types.ts';
 import {
   wellKnownProvider,
@@ -246,6 +247,12 @@ export async function runUse(
           includeInternal,
           fullDepth: options.fullDepth,
         });
+      } else if (isRegistryMediatedParsedSource(parsed, ownerRepoRaw)) {
+        const registryResult = await fetchRegistryInstall(ownerRepoRaw, {
+          subpath: parsed.subpath,
+          includeInternal,
+        });
+        skills = registryResult.skills;
       } else if (parsed.type === 'github' && !options.fullDepth) {
         const ownerRepo = getOwnerRepo(parsed);
         const owner = ownerRepo?.split('/')[0]?.toLowerCase();
@@ -277,7 +284,7 @@ export async function runUse(
       }
 
       const selected = selectSkill(skills, selector, source);
-      if (blobResult && isBlobSkill(selected)) {
+      if (isBlobSkill(selected)) {
         selectedSkill = {
           kind: 'blob',
           name: selected.name,

@@ -12,12 +12,15 @@ Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [67 more](#su
 ## Install a Skill
 
 ```bash
-# From the Parlance private-skills repo
+# From the Parlance private-skills registry
+export SKILLS_REGISTRY_TOKEN=<your-cli-token>
 npx @parlance-labs/skills add parlance-labs/private-skills
 
 # From any GitHub repo
 npx @parlance-labs/skills add owner/repo
 ```
+
+`parlance-labs/private-skills` is server-mediated: the CLI downloads authorized snapshots from the registry for add/use/update flows and does not clone the private GitHub repo. Other GitHub sources continue to use direct GitHub access unless they are listed in `SKILLS_REGISTRY_SOURCES`.
 
 ## Use a Skill Without Installing
 
@@ -483,13 +486,20 @@ Ensure you have write access to the target directory.
 
 ## Environment Variables
 
-| Variable                  | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
-| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
-| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+| Variable                  | Description                                                                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKILLS_REGISTRY_TOKEN`   | Bearer token for server-mediated installs and updates from the private registry. Required for `parlance-labs/private-skills`.                                                            |
+| `SKILLS_REGISTRY_URL`     | Registry base URL. Defaults to `https://skills.parlance-labs.com`.                                                                                                                        |
+| `SKILLS_REGISTRY_SOURCES` | Comma-separated owner/repo list to install through the registry instead of cloning. Defaults to `parlance-labs/private-skills`. Use `*` to force all GitHub sources through the registry. |
+| `SKILLS_AUDIT_URL`        | Optional custom audit endpoint. Default audit lookups are skipped for private or unknown-visibility repos.                                                                                |
+| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true`                                                                                                                |
+| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry and audit lookups                                                                                                                                |
+| `DO_NOT_TRACK`            | Alternative way to disable telemetry and audit lookups                                                                                                                                    |
 
 ```bash
+# Install from the private registry
+SKILLS_REGISTRY_TOKEN=<your-cli-token> npx @parlance-labs/skills add parlance-labs/private-skills --skill code-review
+
 # Install internal skills
 INSTALL_INTERNAL_SKILLS=1 npx @parlance-labs/skills add parlance-labs/private-skills --list
 ```

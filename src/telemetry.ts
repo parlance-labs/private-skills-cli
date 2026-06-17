@@ -1,7 +1,13 @@
-const TELEMETRY_URL =
-  process.env.SKILLS_TELEMETRY_URL || 'https://skills-telemetry.parlance-labs.com/t';
-const AUDIT_URL =
-  process.env.SKILLS_AUDIT_URL || 'https://skills-telemetry.parlance-labs.com/audit';
+const DEFAULT_TELEMETRY_URL = 'https://skills-telemetry.parlance-labs.com/t';
+const DEFAULT_AUDIT_URL = 'https://skills-telemetry.parlance-labs.com/audit';
+
+function telemetryUrl(): string {
+  return process.env.SKILLS_TELEMETRY_URL || DEFAULT_TELEMETRY_URL;
+}
+
+function auditUrl(): string {
+  return process.env.SKILLS_AUDIT_URL || DEFAULT_AUDIT_URL;
+}
 
 /**
  * True when the operator has explicitly pointed telemetry at their own endpoint
@@ -14,6 +20,10 @@ const AUDIT_URL =
  */
 export function isCustomTelemetryEndpoint(): boolean {
   return Boolean(process.env.SKILLS_TELEMETRY_URL);
+}
+
+export function isCustomAuditEndpoint(): boolean {
+  return Boolean(process.env.SKILLS_AUDIT_URL);
 }
 
 interface InstallTelemetryData {
@@ -123,6 +133,7 @@ export async function fetchAuditData(
   skillSlugs: string[],
   timeoutMs = 3000
 ): Promise<AuditResponse | null> {
+  if (!isEnabled()) return null;
   if (skillSlugs.length === 0) return null;
 
   try {
@@ -134,7 +145,7 @@ export async function fetchAuditData(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
+    const response = await fetch(`${auditUrl()}?${params.toString()}`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -180,7 +191,7 @@ export function track(data: TelemetryData): void {
 
     // Fire and forget during the workflow, but track the promise so
     // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
+    const p = fetch(`${telemetryUrl()}?${params.toString()}`)
       .catch(() => {})
       .then(() => {});
     pendingTelemetry.push(p);
