@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, rm, writeFile, lstat, symlink } from 'node:fs/promises';
+import { mkdir, rm, writeFile, readFile, lstat, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { removeCommand } from '../src/remove.ts';
@@ -50,6 +50,7 @@ describe('removeCommand canonical protection', () => {
     // 1. Create canonical storage
     await mkdir(canonicalPath, { recursive: true });
     await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
+    await writeProjectLock(tempDir, skillName);
 
     // 2. Install (symlink) to Claude and Continue
     await symlink(canonicalPath, claudePath, 'junction');
@@ -76,6 +77,7 @@ describe('removeCommand canonical protection', () => {
 
     // Canonical path SHOULD STILL EXIST because Continue uses it
     expect((await lstat(canonicalPath)).isDirectory()).toBe(true);
+    expect(await projectLockHasSkill(tempDir, skillName)).toBe(true);
 
     // Continue path should still be valid
     expect(
@@ -91,6 +93,7 @@ describe('removeCommand canonical protection', () => {
     await mkdir(canonicalPath, { recursive: true });
     await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
     await symlink(canonicalPath, claudePath, 'junction');
+    await writeProjectLock(tempDir, skillName);
 
     // Mock agents: Only Claude is installed
     vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code']);
@@ -101,5 +104,35 @@ describe('removeCommand canonical protection', () => {
     // Both should be gone
     await expect(lstat(claudePath)).rejects.toThrow();
     await expect(lstat(canonicalPath)).rejects.toThrow();
+    expect(await projectLockHasSkill(tempDir, skillName)).toBe(false);
   });
 });
+
+async function writeProjectLock(dir: string, skillName: string) {
+  await writeFile(
+    join(dir, 'skills-lock.json'),
+    JSON.stringify(
+      {
+        version: 1,
+        skills: {
+          [skillName]: {
+            source: 'owner/repo',
+            sourceType: 'registry',
+            skillPath: `skills/${skillName}/SKILL.md`,
+            computedHash: 'snapshot-v1',
+          },
+        },
+      },
+      null,
+      2
+    ) + '\n',
+    'utf-8'
+  );
+}
+
+async function projectLockHasSkill(dir: string, skillName: string): Promise<boolean> {
+  const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8')) as {
+    skills?: Record<string, unknown>;
+  };
+  return skillName in (lock.skills ?? {});
+}

@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "node scripts/generate-licenses.ts && obuild",
+    "e2e:local-registry": "pnpm build && node scripts/e2e-local-registry.ts",
     "generate-licenses": "node scripts/generate-licenses.ts",
     "dev": "node src/cli.ts",
     "exec:test": "node scripts/execute-tests.ts",

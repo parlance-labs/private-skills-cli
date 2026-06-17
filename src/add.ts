@@ -23,6 +23,10 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 
+function advisoryNetworkChecksEnabled(): boolean {
+  return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
+}
+
 export function getLockSource(parsedUrl: string, normalizedSource: string | null): string | null {
   // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
   // When normalizedSource is used, parseSource() later resolves it to HTTPS,
@@ -796,7 +800,9 @@ async function handleWellKnownSkills(
 
   // Kick off privacy check early so it runs in parallel with installation
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
-  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
+  const wellKnownPrivacyPromise = advisoryNetworkChecksEnabled()
+    ? isSourcePrivate(sourceIdentifier).catch(() => null)
+    : Promise.resolve(null);
 
   spinner.start('Installing skills...');
 
@@ -1041,6 +1047,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // telemetry gating — it should never block user-visible output.
     const ownerRepoRaw = getOwnerRepo(parsed);
     const repoPrivacyPromise: Promise<boolean | null> = (() => {
+      if (!advisoryNetworkChecksEnabled()) return Promise.resolve(null);
       if (!ownerRepoRaw) return Promise.resolve(null);
       const ownerRepo = parseOwnerRepo(ownerRepoRaw);
       if (!ownerRepo) return Promise.resolve(null);
