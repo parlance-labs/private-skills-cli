@@ -351,7 +351,7 @@ description: A test skill
 
   describe('banner', () => {
     it('should include list command in banner', () => {
-      const result = runCli([]);
+      const result = runCli([], undefined, { SKILLS_NO_AGENT_DETECT: '1' });
       expect(result.stdout).toContain('npx skills list');
       expect(result.stdout).toContain('List installed skills');
     });

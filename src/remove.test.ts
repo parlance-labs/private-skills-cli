@@ -153,8 +153,9 @@ This is a test skill.
     });
 
     it('should list skills to remove before confirmation', () => {
-      // Answer 'n' to cancel the confirmation prompt
-      const result = runCliWithInput(['remove', 'skill-one', 'skill-two'], 'n', testDir);
+      const result = runCliWithInput(['remove', 'skill-one', 'skill-two'], 'n', testDir, {
+        SKILLS_NO_AGENT_DETECT: '1',
+      });
 
       // Should show the skills that will be removed
       expect(result.stdout).toContain('Skills to remove');

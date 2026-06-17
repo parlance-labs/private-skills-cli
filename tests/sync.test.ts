@@ -221,7 +221,7 @@ description: Test force
     });
 
     it('should show experimental_sync in banner', () => {
-      const result = runCli([]);
+      const result = runCli([], undefined, { SKILLS_NO_AGENT_DETECT: '1' });
       expect(result.stdout).toContain('experimental_sync');
     });
   });

@@ -53,7 +53,8 @@ export function runCliOutput(args: string[], cwd?: string): string {
 export function runCliWithInput(
   args: string[],
   input: string,
-  cwd?: string
+  cwd?: string,
+  env?: Record<string, string>
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
     const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
@@ -61,6 +62,7 @@ export function runCliWithInput(
       cwd,
       input: input + '\n',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : undefined,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

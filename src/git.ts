@@ -99,7 +99,7 @@ function isAuthFailure(message: string): boolean {
 }
 
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
-  return simpleGit({
+  const options = {
     timeout: { block: CLONE_TIMEOUT_MS },
     env: {
       ...process.env,
@@ -128,7 +128,8 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       'filter.lfs.clean=',
       'filter.lfs.process=',
     ],
-  });
+  };
+  return simpleGit(options);
 }
 
 async function resetTempDir(dir: string): Promise<void> {
