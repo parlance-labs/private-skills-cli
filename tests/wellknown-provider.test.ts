@@ -127,19 +127,9 @@ describe('WellKnownProvider', () => {
       expect(result).toBe('https://example.com/docs/.well-known/agent-skills/index.json');
     });
 
-    it('should return SKILL.md URL if already pointing to skill.md', () => {
-      const url = 'https://example.com/.well-known/skills/my-skill/SKILL.md';
-      expect(provider.toRawUrl(url)).toBe(url);
-    });
-
     it('should return SKILL.md URL for agent-skills path', () => {
       const url = 'https://example.com/.well-known/agent-skills/my-skill/SKILL.md';
       expect(provider.toRawUrl(url)).toBe(url);
-    });
-
-    it('should convert legacy skills skill path to agent-skills SKILL.md URL', () => {
-      const result = provider.toRawUrl('https://example.com/.well-known/skills/my-skill');
-      expect(result).toBe('https://example.com/.well-known/agent-skills/my-skill/SKILL.md');
     });
 
     it('should convert agent-skills skill path to SKILL.md URL', () => {
@@ -149,63 +139,25 @@ describe('WellKnownProvider', () => {
   });
 
   describe('fetchAllSkills', () => {
-    it('keeps supporting legacy files[] indexes', async () => {
+    it('ignores schema-less files[] indexes', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);
         if (href === 'https://example.com/.well-known/agent-skills/index.json') {
           return response({
             skills: [
               {
-                name: 'legacy-skill',
-                description: 'Legacy skill.',
+                name: 'schema-less-skill',
+                description: 'Schema-less skill.',
                 files: ['SKILL.md', 'references/README.md'],
               },
             ],
           });
         }
-        if (href === 'https://example.com/.well-known/agent-skills/legacy-skill/SKILL.md') {
-          return response('---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy');
-        }
-        if (
-          href === 'https://example.com/.well-known/agent-skills/legacy-skill/references/README.md'
-        ) {
-          return response('Reference');
-        }
         return response('not found', { status: 404 });
       });
 
       const skills = await provider.fetchAllSkills('https://example.com');
-      expect(skills).toHaveLength(1);
-      expect(skills[0]!.installName).toBe('legacy-skill');
-      expect(skills[0]!.files.has('references/README.md')).toBe(true);
-    });
-
-    it('keeps supporting path-relative legacy indexes like code.claude.com/docs', async () => {
-      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-        const href = String(url);
-        if (href === 'https://code.claude.com/docs/.well-known/agent-skills/index.json') {
-          return response('not found', { status: 404 });
-        }
-        if (href === 'https://code.claude.com/.well-known/agent-skills/index.json') {
-          return response('not found', { status: 404 });
-        }
-        if (href === 'https://code.claude.com/docs/.well-known/skills/index.json') {
-          return response({
-            skills: [{ name: 'claude', description: 'Claude Code.', files: ['SKILL.md'] }],
-          });
-        }
-        if (href === 'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md') {
-          return response('---\nname: claude\ndescription: Claude Code.\n---\n# Claude');
-        }
-        return response('not found', { status: 404 });
-      });
-
-      const skills = await provider.fetchAllSkills('https://code.claude.com/docs');
-      expect(skills).toHaveLength(1);
-      expect(skills[0]!.installName).toBe('claude');
-      expect(skills[0]!.sourceUrl).toBe(
-        'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md'
-      );
+      expect(skills).toHaveLength(0);
     });
 
     it('supports v0.2.0 skill-md entries with relative URL resolution and digest checks', async () => {

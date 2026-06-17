@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
+import { parseArgs } from 'node:util';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
@@ -44,22 +45,27 @@ export interface UpdateCheckOptions {
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
-  const options: UpdateCheckOptions = {};
-  const positional: string[] = [];
-  for (const arg of args) {
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-p' || arg === '--project') {
-      options.project = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (!arg.startsWith('-')) {
-      positional.push(arg);
-    }
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    strict: false,
+    options: {
+      global: { type: 'boolean', short: 'g' },
+      project: { type: 'boolean', short: 'p' },
+      yes: { type: 'boolean', short: 'y' },
+    },
+  });
+
+  const options: UpdateCheckOptions = {
+    global: values.global === true ? true : undefined,
+    project: values.project === true ? true : undefined,
+    yes: values.yes === true ? true : undefined,
+  };
+
+  if (positionals.length > 0) {
+    options.skills = positionals;
   }
-  if (positional.length > 0) {
-    options.skills = positional;
-  }
+
   return options;
 }
 

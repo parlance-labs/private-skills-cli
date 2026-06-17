@@ -14,7 +14,6 @@ const BUNDLED_PACKAGES = [
   '@clack/core',
   'picocolors',
   'yaml',
-  'simple-git',
   'xdg-basedir',
   'sisteransi',
   'is-unicode-supported',

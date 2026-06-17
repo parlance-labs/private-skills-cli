@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rmSync } from 'fs';
 
-const simpleGitMock = vi.hoisted(() => vi.fn());
 const execFileMock = vi.hoisted(() => vi.fn());
-
-vi.mock('simple-git', () => ({
-  default: simpleGitMock,
-}));
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
@@ -23,14 +18,6 @@ import {
   isGitHubSsoAuthError,
   parseGitHubRepoUrl,
 } from './git.ts';
-
-function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
-  const client = {
-    clone,
-    env: vi.fn().mockReturnThis(),
-  };
-  return client;
-}
 
 function mockExecFileSuccess(stdout = '', stderr = '') {
   execFileMock.mockImplementationOnce(
@@ -49,11 +36,56 @@ function mockExecFileError(message: string) {
   );
 }
 
+function mockExecFileTimeout() {
+  execFileMock.mockImplementationOnce(
+    (_file: string, _args: string[], _options: unknown, callback: (...args: unknown[]) => void) => {
+      const error = Object.assign(new Error('Command failed: git clone'), {
+        killed: true,
+        signal: 'SIGTERM',
+      });
+      callback(error, '', '');
+    }
+  );
+}
+
+function expectGitCloneCall(callIndex: number, url: string, tempDir: string, ref?: string) {
+  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+
+  expect(execFileMock).toHaveBeenNthCalledWith(
+    callIndex,
+    'git',
+    [
+      '-c',
+      'filter.lfs.required=false',
+      '-c',
+      'filter.lfs.smudge=',
+      '-c',
+      'filter.lfs.clean=',
+      '-c',
+      'filter.lfs.process=',
+      'clone',
+      ...cloneOptions,
+      url,
+      tempDir,
+    ],
+    expect.objectContaining({
+      env: expect.objectContaining({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_LFS_SKIP_SMUDGE: '1',
+      }),
+    }),
+    expect.any(Function)
+  );
+}
+
+function expectNoGhCalls() {
+  expect(execFileMock.mock.calls.some(([file]) => file === 'gh')).toBe(false);
+}
+
 describe('git clone fallbacks', () => {
   const createdDirs: string[] = [];
 
   beforeEach(() => {
-    simpleGitMock.mockReset();
     execFileMock.mockReset();
   });
 
@@ -94,31 +126,26 @@ describe('git clone fallbacks', () => {
   });
 
   it('falls back to gh repo clone for GitHub HTTPS auth failures', async () => {
-    const primaryClone = vi
-      .fn()
-      .mockRejectedValue(
-        new Error(
-          "remote: The 'Giphy' organization has enabled or enforced SAML SSO.\n" +
-            "fatal: unable to access 'https://github.com/Giphy/giphy-codex-skills.git/': The requested URL returned error: 403"
-        )
-      );
-
-    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    mockExecFileError(
+      "remote: The 'Giphy' organization has enabled or enforced SAML SSO.\n" +
+        "fatal: unable to access 'https://github.com/Giphy/giphy-codex-skills.git/': The requested URL returned error: 403"
+    );
     mockExecFileSuccess('Git operations protocol: https\n');
     mockExecFileSuccess();
 
     const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
     createdDirs.push(tempDir);
 
+    expectGitCloneCall(1, 'https://github.com/Giphy/giphy-codex-skills.git', tempDir);
     expect(execFileMock).toHaveBeenNthCalledWith(
-      1,
+      2,
       'gh',
       ['auth', 'status', '-h', 'github.com'],
       expect.any(Object),
       expect.any(Function)
     );
     expect(execFileMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       'gh',
       ['repo', 'clone', 'Giphy/giphy-codex-skills', tempDir, '--', '--depth=1'],
       expect.any(Object),
@@ -127,39 +154,32 @@ describe('git clone fallbacks', () => {
   });
 
   it('falls back to SSH when gh clone is unavailable or fails', async () => {
-    const primaryClone = vi.fn().mockRejectedValue(new Error('fatal: Authentication failed'));
-    const sshClone = vi.fn().mockResolvedValue(undefined);
-
-    simpleGitMock
-      .mockReturnValueOnce(createGitClientMock(primaryClone))
-      .mockReturnValueOnce(createGitClientMock(sshClone));
+    mockExecFileError('fatal: Authentication failed');
     mockExecFileSuccess('Git operations protocol: ssh\n');
     mockExecFileError('gh repo clone failed');
+    mockExecFileSuccess();
 
     const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
     createdDirs.push(tempDir);
 
-    expect(sshClone).toHaveBeenCalledWith('git@github.com:Giphy/giphy-codex-skills.git', tempDir, [
-      '--depth',
-      '1',
-    ]);
+    expectGitCloneCall(1, 'https://github.com/Giphy/giphy-codex-skills.git', tempDir);
+    expectGitCloneCall(4, 'git@github.com:Giphy/giphy-codex-skills.git', tempDir);
+    expect(execFileMock.mock.calls[3]?.[2]).toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+        }),
+      })
+    );
   });
 
   it('surfaces a targeted SAML SSO message when all fallbacks fail', async () => {
-    const primaryClone = vi
-      .fn()
-      .mockRejectedValue(
-        new Error(
-          "remote: The 'Giphy' organization has enabled or enforced SAML SSO.\n" +
-            "fatal: unable to access 'https://github.com/Giphy/giphy-codex-skills.git/': The requested URL returned error: 403"
-        )
-      );
-    const sshClone = vi.fn().mockRejectedValue(new Error('Permission denied (publickey).'));
-
-    simpleGitMock
-      .mockReturnValueOnce(createGitClientMock(primaryClone))
-      .mockReturnValueOnce(createGitClientMock(sshClone));
+    mockExecFileError(
+      "remote: The 'Giphy' organization has enabled or enforced SAML SSO.\n" +
+        "fatal: unable to access 'https://github.com/Giphy/giphy-codex-skills.git/': The requested URL returned error: 403"
+    );
     mockExecFileError('gh auth unavailable');
+    mockExecFileError('Permission denied (publickey).');
 
     try {
       await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
@@ -172,28 +192,32 @@ describe('git clone fallbacks', () => {
   });
 
   it('does not try gh fallback for GitLab clone URLs', async () => {
-    const primaryClone = vi
-      .fn()
-      .mockRejectedValue(
-        new Error('fatal: unable to access repo: The requested URL returned error: 403')
-      );
-
-    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    mockExecFileError('fatal: unable to access repo: The requested URL returned error: 403');
 
     await expect(cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')).rejects.toThrow(
       GitCloneError
     );
-    expect(execFileMock).not.toHaveBeenCalled();
+    expectNoGhCalls();
   });
 
   it('does not try gh fallback for GitHub SSH clone URLs', async () => {
-    const primaryClone = vi.fn().mockRejectedValue(new Error('Permission denied (publickey).'));
-
-    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    mockExecFileError('Permission denied (publickey).');
 
     await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toThrow(
       GitCloneError
     );
-    expect(execFileMock).not.toHaveBeenCalled();
+    expectNoGhCalls();
+  });
+
+  it('keeps timeout errors actionable when direct git execution times out', async () => {
+    mockExecFileTimeout();
+
+    await expect(
+      cloneRepo('https://github.com/Giphy/giphy-codex-skills.git')
+    ).rejects.toMatchObject({
+      isTimeout: true,
+      isAuthError: false,
+      message: expect.stringContaining('Clone timed out after 300s'),
+    });
   });
 });

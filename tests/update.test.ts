@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
+import { parseUpdateOptions, updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -75,6 +75,34 @@ describe('Update Cleanup Unit Tests', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       configurable: true,
+    });
+  });
+
+  describe('parseUpdateOptions', () => {
+    it('parses boolean flags and skill filters', () => {
+      expect(parseUpdateOptions(['-g', '-y', 'lint-skill', 'docs-skill'])).toEqual({
+        global: true,
+        project: undefined,
+        yes: true,
+        skills: ['lint-skill', 'docs-skill'],
+      });
+    });
+
+    it('parses long flags and project scope', () => {
+      expect(parseUpdateOptions(['--project', '--yes'])).toEqual({
+        global: undefined,
+        project: true,
+        yes: true,
+      });
+    });
+
+    it('keeps ignoring unknown flags while preserving positionals', () => {
+      expect(parseUpdateOptions(['--unknown', 'lint-skill'])).toEqual({
+        global: undefined,
+        project: undefined,
+        yes: undefined,
+        skills: ['lint-skill'],
+      });
     });
   });
 

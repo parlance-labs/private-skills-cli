@@ -9,37 +9,17 @@ const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
 
 /**
- * Legacy index.json structure for well-known skills.
- * This is the pre-0.2.0 format used by existing publishers.
- */
-export interface WellKnownIndexV1 {
-  skills: WellKnownSkillEntryV1[];
-}
-
-/**
- * Represents a legacy skill entry in index.json.
- */
-export interface WellKnownSkillEntryV1 {
-  /** Skill identifier. Must match the directory name. */
-  name: string;
-  /** Brief description of what the skill does. */
-  description: string;
-  /** Array of all files in the skill directory. */
-  files: string[];
-}
-
-/**
  * Current v0.2.0 well-known discovery index.
  */
-export interface WellKnownIndexV2 {
+export interface WellKnownIndex {
   $schema: typeof DISCOVERY_SCHEMA_V2;
-  skills: WellKnownSkillEntryV2[];
+  skills: WellKnownSkillEntry[];
 }
 
 /**
  * Represents a v0.2.0 skill artifact entry in index.json.
  */
-export interface WellKnownSkillEntryV2 {
+export interface WellKnownSkillEntry {
   name: string;
   type: 'skill-md' | 'archive';
   description: string;
@@ -47,29 +27,16 @@ export interface WellKnownSkillEntryV2 {
   digest: string;
 }
 
-export type WellKnownIndex = WellKnownIndexV1 | WellKnownIndexV2;
-export type WellKnownSkillEntry = WellKnownSkillEntryV1 | WellKnownSkillEntryV2;
 export type WellKnownFileContent = string | Uint8Array;
 
-type NormalizedWellKnownEntry =
-  | {
-      version: '0.1.0';
-      name: string;
-      description: string;
-      files: string[];
-      baseUrl: string;
-      wellKnownPath: string;
-      indexEntry: WellKnownSkillEntryV1;
-    }
-  | {
-      version: '0.2.0';
-      name: string;
-      description: string;
-      type: 'skill-md' | 'archive';
-      artifactUrl: string;
-      digest: string;
-      indexEntry: WellKnownSkillEntryV2;
-    };
+type NormalizedWellKnownEntry = {
+  name: string;
+  description: string;
+  type: 'skill-md' | 'archive';
+  artifactUrl: string;
+  digest: string;
+  indexEntry: WellKnownSkillEntry;
+};
 
 /**
  * Represents a skill with all installable files fetched from a well-known endpoint.
@@ -84,24 +51,17 @@ export interface WellKnownSkill extends RemoteSkill {
 /**
  * Well-known skills provider using RFC 8615 well-known URIs.
  *
- * Supports both:
- * - v0.2.0: $schema + type/url/digest single-artifact model
- * - legacy/v0.1.0: name/description/files directory model
- *
  * Organizations can publish skills at:
- * https://example.com/.well-known/agent-skills/  (preferred)
- * https://example.com/.well-known/skills/         (legacy fallback)
+ * https://example.com/.well-known/agent-skills/
  *
- * The provider first checks /.well-known/agent-skills/index.json,
- * then falls back to /.well-known/skills/index.json. For compatibility with
- * existing publishers, it also preserves the historical path-relative probing
- * behavior for URLs such as https://example.com/docs.
+ * The provider checks /.well-known/agent-skills/index.json. For URLs with a
+ * path, it tries path-relative discovery first, then root discovery.
  */
 export class WellKnownProvider implements HostProvider {
   readonly id = 'well-known';
   readonly displayName = 'Well-Known Skills';
 
-  private readonly WELL_KNOWN_PATHS = ['.well-known/agent-skills', '.well-known/skills'] as const;
+  private readonly WELL_KNOWN_PATH = '.well-known/agent-skills';
   private readonly INDEX_FILE = 'index.json';
 
   /**
@@ -132,9 +92,8 @@ export class WellKnownProvider implements HostProvider {
 
   /**
    * Fetch the skills index from a well-known endpoint.
-   * Tries /.well-known/agent-skills/index.json first, then falls back to
-   * /.well-known/skills/index.json. For each path, tries path-relative
-   * first, then root .well-known.
+   * Tries path-relative /.well-known/agent-skills/index.json first, then
+   * root /.well-known/agent-skills/index.json.
    */
   async fetchIndex(baseUrl: string): Promise<{
     index: WellKnownIndex;
@@ -166,20 +125,19 @@ export class WellKnownProvider implements HostProvider {
         wellKnownPath: string;
       }> = [];
 
-      for (const wellKnownPath of this.WELL_KNOWN_PATHS) {
+      const wellKnownPath = this.WELL_KNOWN_PATH;
+      urlsToTry.push({
+        indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${wellKnownPath}/${this.INDEX_FILE}`,
+        baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
+        wellKnownPath,
+      });
+
+      if (basePath && basePath !== '') {
         urlsToTry.push({
-          indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${wellKnownPath}/${this.INDEX_FILE}`,
-          baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
+          indexUrl: `${parsed.protocol}//${parsed.host}/${wellKnownPath}/${this.INDEX_FILE}`,
+          baseUrl: `${parsed.protocol}//${parsed.host}`,
           wellKnownPath,
         });
-
-        if (basePath && basePath !== '') {
-          urlsToTry.push({
-            indexUrl: `${parsed.protocol}//${parsed.host}/${wellKnownPath}/${this.INDEX_FILE}`,
-            baseUrl: `${parsed.protocol}//${parsed.host}`,
-            wellKnownPath,
-          });
-        }
       }
 
       const candidates: Array<{
@@ -196,7 +154,7 @@ export class WellKnownProvider implements HostProvider {
           if (!response.ok) continue;
 
           const rawIndex = (await response.json()) as unknown;
-          const normalized = this.normalizeIndex(rawIndex, indexUrl, wellKnownPath);
+          const normalized = this.normalizeIndex(rawIndex, indexUrl);
           if (!normalized) continue;
 
           candidates.push({
@@ -219,69 +177,34 @@ export class WellKnownProvider implements HostProvider {
 
   private normalizeIndex(
     rawIndex: unknown,
-    indexUrl: string,
-    resolvedWellKnownPath: string
+    indexUrl: string
   ): { index: WellKnownIndex; entries: NormalizedWellKnownEntry[] } | null {
     if (!rawIndex || typeof rawIndex !== 'object') return null;
 
     const record = rawIndex as Record<string, unknown>;
     if (!Array.isArray(record.skills)) return null;
+    if (record.$schema !== DISCOVERY_SCHEMA_V2) return null;
 
-    const schema = record.$schema;
-
-    if (schema === DISCOVERY_SCHEMA_V2) {
-      const entries: NormalizedWellKnownEntry[] = [];
-      const v2Entries: WellKnownSkillEntryV2[] = [];
-
-      for (const entry of record.skills) {
-        if (!this.isValidSkillEntryV2(entry)) continue;
-
-        const artifactUrl = new URL(entry.url, indexUrl).toString();
-        entries.push({
-          version: '0.2.0',
-          name: entry.name,
-          description: entry.description,
-          type: entry.type,
-          artifactUrl,
-          digest: entry.digest,
-          indexEntry: entry,
-        });
-        v2Entries.push(entry);
-      }
-
-      if (entries.length === 0) return null;
-      return { index: { $schema: DISCOVERY_SCHEMA_V2, skills: v2Entries }, entries };
-    }
-
-    // Per the v0.2.0 draft, an absent $schema means legacy/v0.1.0.
-    // Unknown schemas are not processed because the shape may have changed incompatibly.
-    if (schema !== undefined) return null;
-
-    const v1Entries: WellKnownSkillEntryV1[] = [];
     const entries: NormalizedWellKnownEntry[] = [];
+    const indexEntries: WellKnownSkillEntry[] = [];
 
-    // Preserve legacy all-or-nothing validation behavior for the old files[] format.
     for (const entry of record.skills) {
-      if (!this.isValidSkillEntryV1(entry)) return null;
-      v1Entries.push(entry);
+      if (!this.isValidSkillEntry(entry)) continue;
+
+      const artifactUrl = new URL(entry.url, indexUrl).toString();
       entries.push({
-        version: '0.1.0',
         name: entry.name,
         description: entry.description,
-        files: entry.files,
-        baseUrl: this.getLegacySkillBaseUrl(indexUrl, resolvedWellKnownPath),
-        wellKnownPath: resolvedWellKnownPath,
+        type: entry.type,
+        artifactUrl,
+        digest: entry.digest,
         indexEntry: entry,
       });
+      indexEntries.push(entry);
     }
 
-    return { index: { skills: v1Entries }, entries };
-  }
-
-  private getLegacySkillBaseUrl(indexUrl: string, wellKnownPath: string): string {
-    const parsed = new URL(indexUrl);
-    const marker = `/${wellKnownPath}/${this.INDEX_FILE}`;
-    return `${parsed.protocol}//${parsed.host}${parsed.pathname.slice(0, -marker.length)}`;
+    if (entries.length === 0) return null;
+    return { index: { $schema: DISCOVERY_SCHEMA_V2, skills: indexEntries }, entries };
   }
 
   private isValidSkillName(name: unknown): name is string {
@@ -293,36 +216,8 @@ export class WellKnownProvider implements HostProvider {
     return true;
   }
 
-  private isSafeLegacyFilePath(filePath: unknown): filePath is string {
-    if (typeof filePath !== 'string' || filePath.length === 0) return false;
-    // Preserve existing stricter legacy behavior: reject absolute paths, Windows absolute-ish
-    // paths, and any occurrence of "..".
-    if (filePath.startsWith('/') || filePath.startsWith('\\') || filePath.includes('..')) {
-      return false;
-    }
-    if (filePath.includes('\0')) return false;
-    return true;
-  }
-
-  /** Validate a legacy skill entry from the index. */
-  private isValidSkillEntryV1(entry: unknown): entry is WellKnownSkillEntryV1 {
-    if (!entry || typeof entry !== 'object') return false;
-
-    const e = entry as Record<string, unknown>;
-    if (!this.isValidSkillName(e.name)) return false;
-    if (typeof e.description !== 'string' || !e.description) return false;
-    if (!Array.isArray(e.files) || e.files.length === 0) return false;
-
-    for (const file of e.files) {
-      if (!this.isSafeLegacyFilePath(file)) return false;
-    }
-
-    const hasSkillMd = e.files.some((f) => typeof f === 'string' && f.toLowerCase() === 'skill.md');
-    return hasSkillMd;
-  }
-
   /** Validate a v0.2.0 skill entry from the index. */
-  private isValidSkillEntryV2(entry: unknown): entry is WellKnownSkillEntryV2 {
+  private isValidSkillEntry(entry: unknown): entry is WellKnownSkillEntry {
     if (!entry || typeof entry !== 'object') return false;
 
     const e = entry as Record<string, unknown>;
@@ -354,9 +249,7 @@ export class WellKnownProvider implements HostProvider {
         const { entries } = result;
         let skillName: string | null = null;
 
-        const pathMatch = parsed.pathname.match(
-          /\/.well-known\/(?:agent-skills|skills)\/([^/]+)\/?$/
-        );
+        const pathMatch = parsed.pathname.match(/\/.well-known\/agent-skills\/([^/]+)\/?$/);
         if (pathMatch && pathMatch[1] && pathMatch[1] !== 'index.json') {
           skillName = pathMatch[1];
         } else if (entries.length === 1) {
@@ -378,89 +271,12 @@ export class WellKnownProvider implements HostProvider {
     }
   }
 
-  /**
-   * Fetch a skill by its normalized index entry. Kept public for tests and
-   * internal add flow; callers with legacy arguments are also supported.
-   */
-  async fetchSkillByEntry(
-    baseUrlOrEntry: string | NormalizedWellKnownEntry,
-    legacyEntry?: WellKnownSkillEntryV1,
-    legacyWellKnownPath?: string
-  ): Promise<WellKnownSkill | null> {
-    if (typeof baseUrlOrEntry === 'string') {
-      if (!legacyEntry) return null;
-      return this.fetchLegacySkillByEntry({
-        version: '0.1.0',
-        name: legacyEntry.name,
-        description: legacyEntry.description,
-        files: legacyEntry.files,
-        baseUrl: baseUrlOrEntry,
-        wellKnownPath: legacyWellKnownPath ?? this.WELL_KNOWN_PATHS[0],
-        indexEntry: legacyEntry,
-      });
-    }
-
-    if (baseUrlOrEntry.version === '0.1.0') {
-      return this.fetchLegacySkillByEntry(baseUrlOrEntry);
-    }
-
-    return this.fetchArtifactSkillByEntry(baseUrlOrEntry);
+  /** Fetch a skill by its normalized index entry. */
+  async fetchSkillByEntry(entry: NormalizedWellKnownEntry): Promise<WellKnownSkill | null> {
+    return this.fetchArtifactSkillByEntry(entry);
   }
 
-  private async fetchLegacySkillByEntry(
-    entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>
-  ) {
-    try {
-      const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
-      const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
-      const response = await fetch(skillMdUrl);
-      if (!response.ok) return null;
-
-      const content = await response.text();
-      const { data } = parseFrontmatter(content);
-      if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
-
-      const files = new Map<string, WellKnownFileContent>();
-      files.set('SKILL.md', content);
-
-      const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'skill.md');
-      const filePromises = otherFiles.map(async (filePath) => {
-        try {
-          const fileUrl = `${skillBaseUrl}/${filePath}`;
-          const fileResponse = await fetch(fileUrl);
-          if (fileResponse.ok) {
-            const fileContent = await fileResponse.arrayBuffer();
-            return { path: filePath, content: new Uint8Array(fileContent) };
-          }
-        } catch {
-          // Ignore individual file fetch errors to preserve legacy behavior.
-        }
-        return null;
-      });
-
-      const fileResults = await Promise.all(filePromises);
-      for (const result of fileResults) {
-        if (result) files.set(result.path, result.content);
-      }
-
-      return this.createSkill({
-        name: data.name,
-        description: data.description,
-        content,
-        installName: entry.name,
-        sourceUrl: skillMdUrl,
-        metadata: data.metadata,
-        files,
-        indexEntry: entry.indexEntry,
-      });
-    } catch {
-      return null;
-    }
-  }
-
-  private async fetchArtifactSkillByEntry(
-    entry: Extract<NormalizedWellKnownEntry, { version: '0.2.0' }>
-  ) {
+  private async fetchArtifactSkillByEntry(entry: NormalizedWellKnownEntry) {
     try {
       const response = await fetch(entry.artifactUrl);
       if (!response.ok) return null;
@@ -765,17 +581,14 @@ export class WellKnownProvider implements HostProvider {
         return url;
       }
 
-      const primaryPath = this.WELL_KNOWN_PATHS[0];
-      const pathMatch = parsed.pathname.match(
-        /\/.well-known\/(?:agent-skills|skills)\/([^/]+)\/?$/
-      );
+      const pathMatch = parsed.pathname.match(/\/.well-known\/agent-skills\/([^/]+)\/?$/);
       if (pathMatch && pathMatch[1]) {
-        const basePath = parsed.pathname.replace(/\/.well-known\/(?:agent-skills|skills)\/.*$/, '');
-        return `${parsed.protocol}//${parsed.host}${basePath}/${primaryPath}/${pathMatch[1]}/SKILL.md`;
+        const basePath = parsed.pathname.replace(/\/.well-known\/agent-skills\/.*$/, '');
+        return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${pathMatch[1]}/SKILL.md`;
       }
 
       const basePath = parsed.pathname.replace(/\/$/, '');
-      return `${parsed.protocol}//${parsed.host}${basePath}/${primaryPath}/${this.INDEX_FILE}`;
+      return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`;
     } catch {
       return url;
     }

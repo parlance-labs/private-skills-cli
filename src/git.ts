@@ -1,4 +1,3 @@
-import simpleGit from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -98,34 +97,62 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
-function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
-  return simpleGit({
-    timeout: { block: CLONE_TIMEOUT_MS },
-    // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
-    // git sees `filter=lfs` in .gitattributes, tries to run
-    // `git-lfs filter-process`, and aborts the checkout with:
-    //   git-lfs filter-process: git-lfs: command not found
-    //   fatal: the remote end hung up unexpectedly
-    //   warning: Clone succeeded, but checkout failed.
-    // Overriding filter.lfs.* at the command level disables the filter
-    // entirely for this clone, so checkout succeeds regardless of whether
-    // git-lfs is installed. LFS-tracked files are left as ~130-byte
-    // pointer files, which the skills installer doesn't read anyway
-    // (skills are plain text — HTML/MD/JSON — never LFS-tracked).
-    //
-    // Reported downstream: heygen-com/hyperframes#407.
-    config: [
-      'filter.lfs.required=false',
-      'filter.lfs.smudge=',
-      'filter.lfs.clean=',
-      'filter.lfs.process=',
-    ],
-  }).env({
+const GIT_LFS_CONFIG = [
+  'filter.lfs.required=false',
+  'filter.lfs.smudge=',
+  'filter.lfs.clean=',
+  'filter.lfs.process=',
+];
+
+function gitEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
     GIT_LFS_SKIP_SMUDGE: '1',
     ...extraEnv,
-  });
+  };
+}
+
+function execErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+
+  const details = error as Error & {
+    killed?: unknown;
+    signal?: unknown;
+    stdout?: unknown;
+    stderr?: unknown;
+  };
+  const message =
+    details.killed === true && details.signal === 'SIGTERM'
+      ? `Command timed out after ${Math.round(CLONE_TIMEOUT_MS / 1000)}s: ${error.message}`
+      : error.message;
+  const output = [details.stderr, details.stdout]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join('\n');
+
+  return output ? `${message}\n${output}` : message;
+}
+
+async function gitClone(
+  url: string,
+  tempDir: string,
+  cloneOptions: string[],
+  extraEnv?: NodeJS.ProcessEnv
+): Promise<void> {
+  // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect:
+  // git sees `filter=lfs` in .gitattributes, tries to run
+  // `git-lfs filter-process`, and aborts checkout. Per-clone config disables
+  // that filter so skill text files can still be read from the clone.
+  const configArgs = GIT_LFS_CONFIG.flatMap((config) => ['-c', config]);
+
+  try {
+    await execFileAsync('git', [...configArgs, 'clone', ...cloneOptions, url, tempDir], {
+      timeout: CLONE_TIMEOUT_MS,
+      env: gitEnv(extraEnv),
+    });
+  } catch (error) {
+    throw new Error(execErrorMessage(error));
+  }
 }
 
 async function resetTempDir(dir: string): Promise<void> {
@@ -191,7 +218,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const repo = parseGitHubRepoUrl(url);
 
   try {
-    await createGitClient().clone(url, tempDir, cloneOptions);
+    await gitClone(url, tempDir, cloneOptions);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -226,9 +253,9 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
       try {
         await resetTempDir(tempDir);
-        await createGitClient({
+        await gitClone(repo.sshUrl, tempDir, cloneOptions, {
           GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
-        }).clone(repo.sshUrl, tempDir, cloneOptions);
+        });
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
