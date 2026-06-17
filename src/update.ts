@@ -22,6 +22,8 @@ import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { fetchRegistryInstall, isRegistryMediatedParsedSource } from './registry.ts';
+import { getOwnerRepo, parseSource } from './source-parser.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -181,6 +183,9 @@ export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }
+  if (entry.sourceType === 'registry') {
+    return 'Registry-mediated source';
+  }
   if (!entry.skillFolderHash) {
     return 'Private or deleted repo';
   }
@@ -188,6 +193,27 @@ export function getSkipReason(entry: SkillLockEntry): string {
     return 'No skill path recorded';
   }
   return 'No version tracking';
+}
+
+function registryOwnerRepoForUpdate(entry: {
+  source: string;
+  sourceType: string;
+  sourceUrl?: string;
+}): string | null {
+  const candidates = [entry.sourceUrl, entry.source].filter((s): s is string => !!s);
+
+  for (const candidate of candidates) {
+    const parsed = parseSource(candidate);
+    const ownerRepo = getOwnerRepo(parsed);
+    if (entry.sourceType === 'registry' && ownerRepo && /^[^/\s]+\/[^/\s]+$/.test(ownerRepo)) {
+      return ownerRepo;
+    }
+    if (isRegistryMediatedParsedSource(parsed, ownerRepo)) {
+      return ownerRepo;
+    }
+  }
+
+  return null;
 }
 
 export function getInstallSource(skill: SkippedSkill): string {
@@ -305,7 +331,12 @@ export async function updateGlobalSkills(
     return { successCount, failCount, checkedCount: 0 };
   }
 
-  const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const updates: Array<{
+    name: string;
+    source: string;
+    entry: SkillLockEntry;
+    registrySource?: string;
+  }> = [];
   const skipped: SkippedSkill[] = [];
   const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
 
@@ -345,6 +376,43 @@ export async function updateGlobalSkills(
     process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
 
     try {
+      const registrySource = registryOwnerRepoForUpdate(firstEntry);
+      if (registrySource) {
+        const registryResult = await fetchRegistryInstall(registrySource, {
+          includeInternal: true,
+        });
+        const snapshotByPath = new Map(
+          registryResult.skills.map((skill) => [skill.repoPath, skill.snapshotHash])
+        );
+        const discoveredPaths = [...snapshotByPath.keys()];
+
+        const allLockedForSource = Object.entries(lock.skills)
+          .filter(([_, entry]) => entry.source === source)
+          .map(([name, _]) => name);
+
+        const deletedSkills = await checkAndPromptForDeletions(
+          source,
+          allLockedForSource,
+          lock.skills,
+          true,
+          options,
+          discoveredPaths
+        );
+
+        const deletedSkillSet = new Set(deletedSkills);
+
+        for (const { name: skillName, entry } of itemsForSource) {
+          if (deletedSkillSet.has(skillName)) continue;
+
+          const latestHash = snapshotByPath.get(entry.skillPath!);
+          if (latestHash && latestHash !== entry.skillFolderHash) {
+            updates.push({ name: skillName, source, entry, registrySource });
+          }
+        }
+
+        continue;
+      }
+
       const isGitHubSource = firstEntry.sourceType === 'github';
 
       if (isGitHubSource) {
@@ -460,7 +528,14 @@ export async function updateGlobalSkills(
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-    const installUrl = buildUpdateInstallSource(update.entry);
+    const installUrl = update.registrySource
+      ? buildUpdateInstallSource({
+          ...update.entry,
+          source: update.registrySource,
+          sourceUrl: update.registrySource,
+          ref: undefined,
+        })
+      : buildUpdateInstallSource(update.entry);
 
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
     if (!existsSync(cliEntry)) {
@@ -570,15 +645,24 @@ export async function updateProjectSkills(
 
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
+    const registrySource = registryOwnerRepoForUpdate(firstEntry);
 
     try {
-      tempDir = await cloneRepo(sourceUrl, ref);
-      const discovered = await discoverSkills(tempDir);
+      let discoveredPaths: string[];
+      if (registrySource) {
+        const registryResult = await fetchRegistryInstall(registrySource, {
+          includeInternal: true,
+        });
+        discoveredPaths = registryResult.skills.map((skill) => skill.repoPath);
+      } else {
+        tempDir = await cloneRepo(sourceUrl, ref);
+        const discovered = await discoverSkills(tempDir);
 
-      const discoveredPaths = discovered.map((s) => {
-        const relPath = relative(tempDir!, s.path);
-        return join(relPath, 'SKILL.md').split(sep).join('/');
-      });
+        discoveredPaths = discovered.map((s) => {
+          const relPath = relative(tempDir!, s.path);
+          return join(relPath, 'SKILL.md').split(sep).join('/');
+        });
+      }
 
       deletedSkills = await checkAndPromptForDeletions(
         source,
@@ -601,7 +685,9 @@ export async function updateProjectSkills(
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-      const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
+      const installUrl = buildLocalUpdateSource(
+        registrySource ? { ...skill.entry, source: registrySource, ref: undefined } : skill.entry
+      );
 
       const result = spawnSync(
         process.execPath,
@@ -632,9 +718,7 @@ export function printLegacyProjectSkills(
 ): void {
   if (legacy.length === 0) return;
   console.log();
-  console.log(
-    `${DIM}${legacy.length} project skill(s) cannot be updated automatically (installed before skillPath tracking):${RESET}`
-  );
+  console.log(`${DIM}${legacy.length} project skill(s) cannot be updated automatically:${RESET}`);
   for (const skill of legacy) {
     const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
     console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);

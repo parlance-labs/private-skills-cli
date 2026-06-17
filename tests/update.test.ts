@@ -6,6 +6,7 @@ import * as blob from '../src/blob.ts';
 import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
+import * as registry from '../src/registry.ts';
 import * as p from '@clack/prompts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -17,6 +18,13 @@ vi.mock('../src/blob.ts');
 vi.mock('../src/local-lock.ts');
 vi.mock('../src/skill-lock.ts');
 vi.mock('../src/remove.ts');
+vi.mock('../src/registry.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/registry.ts')>();
+  return {
+    ...actual,
+    fetchRegistryInstall: vi.fn(),
+  };
+});
 vi.mock('@clack/prompts');
 
 // Mock fs to prevent actual file checks during test
@@ -295,6 +303,80 @@ describe('Update Cleanup Unit Tests', () => {
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
       );
+    });
+
+    it('should update legacy private-skills SSH lock entries through the registry', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'git@github.com:parlance-labs/private-skills.git',
+            sourceUrl: 'git@github.com:parlance-labs/private-skills.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(registry.fetchRegistryInstall).mockResolvedValue({
+        registryUrl: 'https://registry.example.com',
+        skills: [
+          {
+            name: 'skill-a',
+            description: 'A',
+            path: 'skill-a',
+            files: [{ path: 'SKILL.md', contents: '---\nname: skill-a\n---\n' }],
+            snapshotHash: 'new-hash',
+            repoPath: 'skills/skill-a/SKILL.md',
+          },
+        ],
+      });
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(registry.fetchRegistryInstall).toHaveBeenCalledWith('parlance-labs/private-skills', {
+        includeInternal: true,
+      });
+      expect(git.cloneRepo).not.toHaveBeenCalled();
+    });
+
+    it('should update registry SSH lock entries through the registry source URL', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'git@github.com:parlance-labs/private-skills.git',
+            sourceUrl: 'parlance-labs/private-skills',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'registry',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(registry.fetchRegistryInstall).mockResolvedValue({
+        registryUrl: 'https://registry.example.com',
+        skills: [
+          {
+            name: 'skill-a',
+            description: 'A',
+            path: 'skill-a',
+            files: [{ path: 'SKILL.md', contents: '---\nname: skill-a\n---\n' }],
+            snapshotHash: 'new-hash',
+            repoPath: 'skills/skill-a/SKILL.md',
+          },
+        ],
+      });
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(registry.fetchRegistryInstall).toHaveBeenCalledWith('parlance-labs/private-skills', {
+        includeInternal: true,
+      });
+      expect(git.cloneRepo).not.toHaveBeenCalled();
     });
   });
 });

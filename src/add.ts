@@ -52,6 +52,7 @@ import {
   track,
   setVersion,
   fetchAuditData,
+  isCustomAuditEndpoint,
   isCustomTelemetryEndpoint,
   type AuditResponse,
   type PartnerAudit,
@@ -78,6 +79,12 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
+import {
+  fetchRegistryInstall,
+  isRegistryMediatedParsedSource,
+  RegistryInstallError,
+  type RegistryInstallResult,
+} from './registry.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -1080,6 +1087,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
+    let registryResult: RegistryInstallResult | null = null;
 
     if (parsed.type === 'local') {
       // Use local path directly, no cloning needed
@@ -1096,6 +1104,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         includeInternal,
         fullDepth: options.fullDepth,
       });
+    } else if (isRegistryMediatedParsedSource(parsed, ownerRepoRaw)) {
+      spinner.start('Fetching skills from registry...');
+      registryResult = await fetchRegistryInstall(ownerRepoRaw, {
+        subpath: parsed.subpath,
+        includeInternal,
+      });
+      skills = registryResult.skills;
+      spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
@@ -1307,10 +1323,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // in parallel with agent selection, scope, and mode prompts.
     const ownerRepoForAudit = getOwnerRepo(parsed);
     const auditPromise = ownerRepoForAudit
-      ? fetchAuditData(
-          ownerRepoForAudit,
-          selectedSkills.map((s) => getSkillDisplayName(s))
-        )
+      ? (async () => {
+          const isPrivate = await repoPrivacyPromise;
+          if (isPrivate !== false && !isCustomAuditEndpoint()) return null;
+          return fetchAuditData(
+            ownerRepoForAudit,
+            selectedSkills.map((s) => getSkillDisplayName(s))
+          );
+        })()
       : Promise.resolve(null);
 
     const { targetAgents, installGlobally, installMode } = await resolveInstallTargetOptions({
@@ -1422,7 +1442,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       for (const agent of targetAgents) {
         let result;
-        if (blobResult && 'files' in skill) {
+        if ((blobResult || registryResult) && 'files' in skill) {
           // Blob-based install: write files from snapshot
           const blobSkill = skill as BlobSkill;
           result = await installBlobSkillForAgent(
@@ -1455,8 +1475,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
     const skillFiles: Record<string, string> = {};
     for (const skill of selectedSkills) {
-      if (blobResult && 'repoPath' in skill) {
-        // Blob-based: repoPath is already the repo-relative path (e.g., "skills/react/SKILL.md")
+      if ('repoPath' in skill) {
+        // Snapshot-based: repoPath is already the repo-relative path (e.g., "skills/react/SKILL.md")
         skillFiles[skill.name] = (skill as BlobSkill).repoPath;
       } else if (tempDir && skill.path === tempDir) {
         // Skill is at root level of repo
@@ -1479,6 +1499,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const normalizedSource = getOwnerRepo(parsed);
 
     const lockSource = getLockSource(parsed.url, normalizedSource);
+    const lockRef = registryResult ? undefined : parsed.ref;
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
@@ -1527,7 +1548,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult) {
+      if (parsed.type === 'github' && !blobResult && !registryResult) {
         cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
         // A truncated tree may be missing the skill's folder entry, which would
         // yield an empty (untrackable) folder hash. Drop it so the loop below
@@ -1542,7 +1563,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
 
-            if (blobResult && skillPathValue) {
+            if (registryResult && 'snapshotHash' in skill) {
+              skillFolderHash = (skill as BlobSkill).snapshotHash;
+            } else if (blobResult && skillPathValue) {
               const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
               if (hash) skillFolderHash = hash;
             } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
@@ -1555,10 +1578,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             }
 
             await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              ref: parsed.ref,
+              source: registryResult ? normalizedSource : lockSource || normalizedSource,
+              sourceType: registryResult ? 'registry' : parsed.type,
+              sourceUrl: registryResult ? normalizedSource : parsed.url,
+              ref: lockRef,
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
@@ -1579,16 +1602,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           try {
             // For blob skills, use the snapshot hash; for disk skills, compute from files
             const computedHash =
-              blobResult && 'snapshotHash' in skill
+              (blobResult || registryResult) && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,
               {
-                source: lockSource || parsed.url,
-                ref: parsed.ref,
-                sourceType: parsed.type,
+                source: registryResult ? normalizedSource || parsed.url : lockSource || parsed.url,
+                ref: lockRef,
+                sourceType: registryResult ? 'registry' : parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
               },
@@ -1712,6 +1735,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (error instanceof GitCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
       // Print each line of the error message separately for better formatting
+      for (const line of error.message.split('\n')) {
+        p.log.message(pc.dim(line));
+      }
+    } else if (error instanceof RegistryInstallError) {
+      p.log.error(pc.red('Failed to install from registry'));
       for (const line of error.message.split('\n')) {
         p.log.message(pc.dim(line));
       }

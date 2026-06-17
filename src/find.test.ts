@@ -13,6 +13,10 @@ function mockFetchOnce(payload: unknown, ok = true): void {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete process.env.SKILLS_REGISTRY_URL;
+  delete process.env.SKILLS_API_URL;
+  delete process.env.SKILLS_REGISTRY_TOKEN;
+  delete process.env.SKILLS_API_TOKEN;
 });
 
 describe('searchSkillsAPI', () => {
@@ -64,5 +68,22 @@ describe('searchSkillsAPI', () => {
     const results = await searchSkillsAPI('foo');
     expect(results[0]!.lastCommitDate).toBeUndefined();
     expect(results[0]!.commitCount).toBeUndefined();
+  });
+
+  it('uses the configured registry URL and token for search', async () => {
+    process.env.SKILLS_REGISTRY_URL = 'https://registry.example.com/';
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ skills: [] }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await searchSkillsAPI('code');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://registry.example.com/api/search?q=code&limit=10',
+      { headers: { Authorization: 'Bearer secret-token' } }
+    );
   });
 });
