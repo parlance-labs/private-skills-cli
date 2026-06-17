@@ -133,6 +133,30 @@ function execErrorMessage(error: unknown): string {
   return output ? `${message}\n${output}` : message;
 }
 
+async function ensureGitAvailable(url: string): Promise<void> {
+  try {
+    await execFileAsync('git', ['--version'], {
+      timeout: 5000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new GitCloneError(
+        `Git is required to clone repositories, but the 'git' executable was not found on PATH.\n` +
+          `  - macOS: install Xcode Command Line Tools with 'xcode-select --install', or install Git with Homebrew\n` +
+          `  - Windows: install Git for Windows and enable adding Git to PATH\n` +
+          `  - Linux: install Git with your distro package manager, for example 'apt install git' or 'dnf install git'\n` +
+          `  - Then verify with: git --version`,
+        url,
+        false,
+        false
+      );
+    }
+
+    throw error;
+  }
+}
+
 async function gitClone(
   url: string,
   tempDir: string,
@@ -213,6 +237,8 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
+  await ensureGitAvailable(url);
+
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const repo = parseGitHubRepoUrl(url);
