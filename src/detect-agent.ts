@@ -23,43 +23,24 @@ const agentNameToType: Record<string, AgentType> = {
   'github-copilot': 'github-copilot',
 };
 
-/** Non-agent sentinel returned when detection is forced off. */
-const NOT_AGENT: AgentResult = { isAgent: false } as AgentResult;
-
 /**
  * Detect if the CLI is being run inside an AI agent environment.
  * Results are cached after the first call. Also updates telemetry with the agent name.
  *
- * Set SKILLS_FORCE_AGENT_DETECTION=0 to force non-agent mode (useful in tests).
- * Set SKILLS_FORCE_AGENT_DETECTION=1 to force agent mode.
+ * Set SKILLS_NO_AGENT_DETECT=1 to bypass detection (useful in test environments
+ * where filesystem-based detection signals like /opt/.devin cannot be suppressed).
  */
 export async function detectAgent(): Promise<AgentResult> {
   if (cachedResult) return cachedResult;
-
-  const override = process.env.SKILLS_FORCE_AGENT_DETECTION;
-  if (override === '0') {
-    cachedResult = NOT_AGENT;
+  if (process.env.SKILLS_NO_AGENT_DETECT === '1') {
+    cachedResult = { isAgent: false } as AgentResult;
     return cachedResult;
   }
-
   cachedResult = await determineAgent();
-
-  if (override === '1' && !cachedResult.isAgent) {
-    cachedResult = {
-      isAgent: true,
-      agent: { name: 'devin' },
-    } as AgentResult;
-  }
-
   if (cachedResult.isAgent) {
     setDetectedAgent(cachedResult.agent.name);
   }
   return cachedResult;
-}
-
-/** Clear cached detection result (for tests). */
-export function resetAgentDetectionCache(): void {
-  cachedResult = null;
 }
 
 /**

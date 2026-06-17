@@ -66,6 +66,7 @@ describe('skills CLI', () => {
         GEMINI_CLI: '',
         OPENCODE_CLIENT: '',
         REPL_ID: '',
+        SKILLS_NO_AGENT_DETECT: '1',
       });
       const output = stripLogo(result.stdout);
       expect(output).toContain('Parlance Labs Private Skills');
