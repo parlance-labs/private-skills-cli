@@ -26,9 +26,16 @@ const agentNameToType: Record<string, AgentType> = {
 /**
  * Detect if the CLI is being run inside an AI agent environment.
  * Results are cached after the first call. Also updates telemetry with the agent name.
+ *
+ * Set SKILLS_NO_AGENT_DETECT=1 to bypass detection (useful in test environments
+ * where filesystem-based detection signals like /opt/.devin cannot be suppressed).
  */
 export async function detectAgent(): Promise<AgentResult> {
   if (cachedResult) return cachedResult;
+  if (process.env.SKILLS_NO_AGENT_DETECT === '1') {
+    cachedResult = { isAgent: false } as AgentResult;
+    return cachedResult;
+  }
   cachedResult = await determineAgent();
   if (cachedResult.isAgent) {
     setDetectedAgent(cachedResult.agent.name);

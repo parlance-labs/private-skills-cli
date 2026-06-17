@@ -20,6 +20,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
+import { isRunningInAgent } from './detect-agent.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -116,7 +117,8 @@ export async function resolveUpdateScope(options: UpdateCheckOptions): Promise<U
     return 'project';
   }
 
-  if (options.yes || !process.stdin.isTTY) {
+  const inAgent = await isRunningInAgent();
+  if (options.yes || inAgent || !process.stdin.isTTY) {
     return hasProjectSkills() ? 'project' : 'global';
   }
 
