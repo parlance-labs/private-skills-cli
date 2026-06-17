@@ -82,6 +82,45 @@ describe('filterSkills', () => {
     });
   });
 
+  describe('directory-basename matching (registry canonical id)', () => {
+    // The registry emits `--skill <dir-basename>`, which can differ from the
+    // frontmatter name. filterSkills must match the directory basename too.
+    const divergent: Skill[] = [
+      makeSkill('My Cool Skill', '/repo/skills/code-review'),
+      makeSkill('Another Skill', '/repo/skills/eval-methodology'),
+    ];
+
+    it('matches by exact directory basename', () => {
+      const result = filterSkills(divergent, ['code-review']);
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('My Cool Skill');
+    });
+
+    it('matches by directory basename case-insensitively', () => {
+      const result = filterSkills(divergent, ['Code-Review']);
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('My Cool Skill');
+    });
+
+    it('matches by slugified directory basename', () => {
+      const skill: Skill[] = [makeSkill('Whatever', '/repo/skills/Code_Review')];
+      const result = filterSkills(skill, ['code-review']);
+      expect(result.length).toBe(1);
+    });
+
+    it('still matches by frontmatter name when basename differs', () => {
+      const result = filterSkills(divergent, ['My Cool Skill']);
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('My Cool Skill');
+    });
+
+    it('does not match empty-path (blob) skills on empty input', () => {
+      const blobLike: Skill[] = [makeSkill('Blob Skill', '')];
+      const result = filterSkills(blobLike, ['']);
+      expect(result.length).toBe(0);
+    });
+  });
+
   describe('no matches', () => {
     it('returns empty array when no matches', () => {
       const result = filterSkills(skills, ['nonexistent']);

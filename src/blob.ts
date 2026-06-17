@@ -12,6 +12,7 @@
 
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { toSkillSlug } from './slug.ts';
 import type { Skill } from './types.ts';
 
 // ─── Types ───
@@ -56,17 +57,23 @@ const FETCH_TIMEOUT = 10_000;
 
 // ─── Slug computation ───
 
+// toSkillSlug is shared with skills.ts via ./slug.ts so the directory basename
+// is a canonical identifier across the CLI, registry index, and download API.
+// Re-exported here for callers that import it from this module.
+export { toSkillSlug };
+
 /**
- * Convert a skill name to a URL-safe slug.
- * Must match the server-side toSkillSlug() exactly.
+ * Derive a skill's canonical slug from its SKILL.md path. The directory basename
+ * is the identifier the registry indexes and the download API is keyed by
+ * (e.g. "skills/code-review/SKILL.md" → "code-review"), so the CLI must use it
+ * too rather than slugifying the frontmatter name. Falls back to the frontmatter
+ * name for a repo-root SKILL.md that has no enclosing folder.
  */
-export function toSkillSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+export function skillSlugFromMdPath(mdPath: string, fallbackName: string): string {
+  const parts = mdPath.split('/');
+  parts.pop(); // drop the trailing SKILL.md
+  const folder = parts[parts.length - 1] ?? '';
+  return toSkillSlug(folder) || toSkillSlug(fallbackName);
 }
 
 // ─── GitHub Trees API ───
@@ -487,7 +494,7 @@ export async function tryBlobInstall(
       name: safeName,
       description: safeDescription,
       content,
-      slug: toSkillSlug(safeName),
+      slug: skillSlugFromMdPath(mdPath, safeName),
       metadata: data.metadata as Record<string, unknown> | undefined,
     });
   }

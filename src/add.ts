@@ -52,6 +52,7 @@ import {
   track,
   setVersion,
   fetchAuditData,
+  isCustomTelemetryEndpoint,
   type AuditResponse,
   type PartnerAudit,
 } from './telemetry.ts';
@@ -73,6 +74,7 @@ import {
   BLOB_ALLOWED_REPOS,
   getSkillFolderHashFromTree,
   fetchRepoTree,
+  skillSlugFromMdPath,
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
@@ -1598,13 +1600,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const ownerRepo = parseOwnerRepo(normalizedSource);
       if (ownerRepo) {
         const isPrivate = await repoPrivacyPromise;
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
-        if (isPrivate === false) {
+        // Only send telemetry if the repo is public (isPrivate === false), so a
+        // private-repo install is never leaked to the default public telemetry
+        // host. The exception: when the operator has configured their own
+        // telemetry endpoint (their private registry), they own that data and
+        // want private installs counted, so send regardless of privacy.
+        if (isPrivate === false || isCustomTelemetryEndpoint()) {
           track({
             event: 'install',
             source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
+            // Report the canonical directory-basename slug so the registry can
+            // match installs to `owner/repo/slug` rather than the frontmatter
+            // display name (which may differ from the indexed identifier).
+            skills: selectedSkills
+              .map((s) => skillSlugFromMdPath(skillFiles[s.name] ?? '', s.name))
+              .join(','),
             agents: targetAgents.join(','),
             ...(installGlobally && { global: '1' }),
             skillFiles: JSON.stringify(skillFiles),

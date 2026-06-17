@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { toSkillSlug } from './slug.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
@@ -312,14 +313,30 @@ export function getSkillDisplayName(skill: Skill): string {
 /**
  * Filter skills based on user input (case-insensitive direct matching).
  * Multi-word skill names must be quoted on the command line.
+ *
+ * Matches against the frontmatter name/display name AND the directory basename
+ * (raw and slugified). The registry emits install commands keyed by the
+ * directory basename (e.g. `--skill code-review`), which is the canonical
+ * identifier, so the basename must match even when it differs from the
+ * frontmatter name.
  */
 export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
   const normalizedInputs = inputNames.map((n) => n.toLowerCase());
+  const inputSlugs = inputNames.map((n) => toSkillSlug(n));
 
   return skills.filter((skill) => {
     const name = skill.name.toLowerCase();
     const displayName = getSkillDisplayName(skill).toLowerCase();
+    const dirBase = basename(skill.path);
+    const dirName = dirBase.toLowerCase();
+    const dirSlug = toSkillSlug(dirBase);
 
-    return normalizedInputs.some((input) => input === name || input === displayName);
+    return normalizedInputs.some(
+      (input, i) =>
+        input === name ||
+        input === displayName ||
+        (dirBase !== '' && input === dirName) ||
+        (dirSlug !== '' && inputSlugs[i] === dirSlug)
+    );
   });
 }
