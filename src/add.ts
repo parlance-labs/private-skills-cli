@@ -41,6 +41,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -67,12 +68,13 @@ import {
   addSkillToLock,
   fetchSkillFolderHash,
   getGitHubToken,
+  readSkillLock,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
-import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import {
   tryBlobInstall,
@@ -229,27 +231,96 @@ type InstallationSummarySkill = {
   fileCount?: number;
 };
 
-async function buildOverwriteStatus(
+type OverwriteState = {
+  installed: boolean;
+  modified: boolean;
+};
+
+function isComparableContentHash(hash: string | undefined): hash is string {
+  return !!hash && /^[a-f0-9]{64}$/i.test(hash);
+}
+
+async function hasLocalChanges(
+  skillName: string,
+  agent: AgentType,
+  options: {
+    global: boolean;
+    cwd: string;
+    installMode: InstallMode;
+    expectedHash?: string;
+  }
+): Promise<boolean> {
+  if (!isComparableContentHash(options.expectedHash)) return false;
+
+  const paths =
+    options.installMode === 'copy'
+      ? [getInstallPath(skillName, agent, { global: options.global, cwd: options.cwd })]
+      : [
+          getCanonicalPath(skillName, { global: options.global, cwd: options.cwd }),
+          getInstallPath(skillName, agent, { global: options.global, cwd: options.cwd }),
+        ];
+
+  const uniquePaths = Array.from(new Set(paths));
+  for (const installPath of uniquePaths) {
+    if (!existsSync(installPath)) continue;
+    try {
+      const currentHash = await computeSkillFolderHash(installPath);
+      if (currentHash !== options.expectedHash) return true;
+    } catch {
+      // If we can't read the existing install, don't turn that into a scary
+      // local-edits warning. The install step will still report real failures.
+    }
+  }
+
+  return false;
+}
+
+export async function buildOverwriteStatus(
   skillNames: string[],
   targetAgents: AgentType[],
-  installGlobally: boolean
-): Promise<Map<string, Map<string, boolean>>> {
+  installGlobally: boolean,
+  options: {
+    cwd?: string;
+    installMode?: InstallMode;
+  } = {}
+): Promise<Map<string, Map<string, OverwriteState>>> {
+  const cwd = options.cwd || process.cwd();
+  const installMode = options.installMode ?? 'symlink';
+  const lock = installGlobally ? await readSkillLock() : await readLocalLock(cwd);
+
+  const expectedHashFor = (skillName: string): string | undefined => {
+    const entry = lock.skills[skillName];
+    if (!entry) return undefined;
+    return 'computedHash' in entry ? entry.computedHash : entry.skillFolderHash;
+  };
+
   const overwriteChecks = await Promise.all(
     skillNames.flatMap((skillName) =>
-      targetAgents.map(async (agent) => ({
-        skillName,
-        agent,
-        installed: await isSkillInstalled(skillName, agent, { global: installGlobally }),
-      }))
+      targetAgents.map(async (agent) => {
+        const installed = await isSkillInstalled(skillName, agent, {
+          global: installGlobally,
+          cwd,
+        });
+        const modified = installed
+          ? await hasLocalChanges(skillName, agent, {
+              global: installGlobally,
+              cwd,
+              installMode,
+              expectedHash: expectedHashFor(skillName),
+            })
+          : false;
+
+        return { skillName, agent, installed, modified };
+      })
     )
   );
 
-  const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const { skillName, agent, installed } of overwriteChecks) {
+  const overwriteStatus = new Map<string, Map<string, OverwriteState>>();
+  for (const { skillName, agent, installed, modified } of overwriteChecks) {
     if (!overwriteStatus.has(skillName)) {
       overwriteStatus.set(skillName, new Map());
     }
-    overwriteStatus.get(skillName)!.set(agent, installed);
+    overwriteStatus.get(skillName)!.set(agent, { installed, modified });
   }
 
   return overwriteStatus;
@@ -270,7 +341,7 @@ function appendInstallSummaryLines({
   installMode: InstallMode;
   installGlobally: boolean;
   cwd: string;
-  overwriteStatus: Map<string, Map<string, boolean>>;
+  overwriteStatus: Map<string, Map<string, OverwriteState>>;
 }): void {
   for (const skill of skills) {
     if (summaryLines.length > 0) summaryLines.push('');
@@ -284,10 +355,21 @@ function appendInstallSummaryLines({
     }
 
     const skillOverwrites = overwriteStatus.get(skill.name);
+    const modifiedAgents = targetAgents
+      .filter((a) => skillOverwrites?.get(a)?.modified)
+      .map((a) => agents[a].displayName);
     const overwriteAgents = targetAgents
-      .filter((a) => skillOverwrites?.get(a))
+      .filter((a) => {
+        const state = skillOverwrites?.get(a);
+        return state?.installed && !state.modified;
+      })
       .map((a) => agents[a].displayName);
 
+    if (modifiedAgents.length > 0) {
+      summaryLines.push(
+        `  ${pc.yellow('local changes:')} ${formatList(modifiedAgents)} ${pc.dim('(will be overwritten)')}`
+      );
+    }
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
     }
@@ -778,7 +860,8 @@ async function handleWellKnownSkills(
   const overwriteStatus = await buildOverwriteStatus(
     selectedSkills.map((skill) => skill.installName),
     targetAgents,
-    installGlobally
+    installGlobally,
+    { cwd, installMode }
   );
   appendInstallSummaryLines({
     summaryLines,
@@ -1355,7 +1438,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const overwriteStatus = await buildOverwriteStatus(
       selectedSkills.map((skill) => skill.name),
       targetAgents,
-      installGlobally
+      installGlobally,
+      { cwd, installMode }
     );
 
     // Group selected skills for summary

@@ -4,7 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource } from './add.ts';
+import { parseAddOptions, getLockSource, buildOverwriteStatus } from './add.ts';
+import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -88,6 +89,80 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('detects local changes before overwriting copy-mode installs', async () => {
+    const skillName = 'copy-edited-skill';
+    const installedDir = join(testDir, '.claude', 'skills', skillName);
+    mkdirSync(installedDir, { recursive: true });
+    writeFileSync(
+      join(installedDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: test
+---
+original
+`
+    );
+    const originalHash = await computeSkillFolderHash(installedDir);
+    await addSkillToLocalLock(
+      skillName,
+      {
+        source: './skills-bundle',
+        sourceType: 'local',
+        computedHash: originalHash,
+      },
+      testDir
+    );
+
+    writeFileSync(join(installedDir, 'notes.md'), 'local edit\n');
+
+    const status = await buildOverwriteStatus([skillName], ['claude-code'], false, {
+      cwd: testDir,
+      installMode: 'copy',
+    });
+
+    expect(status.get(skillName)?.get('claude-code')).toEqual({
+      installed: true,
+      modified: true,
+    });
+  });
+
+  it('detects local changes before overwriting symlink-mode installs', async () => {
+    const skillName = 'symlink-edited-skill';
+    const canonicalDir = join(testDir, '.agents', 'skills', skillName);
+    mkdirSync(canonicalDir, { recursive: true });
+    writeFileSync(
+      join(canonicalDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: test
+---
+original
+`
+    );
+    const originalHash = await computeSkillFolderHash(canonicalDir);
+    await addSkillToLocalLock(
+      skillName,
+      {
+        source: './skills-bundle',
+        sourceType: 'local',
+        computedHash: originalHash,
+      },
+      testDir
+    );
+
+    writeFileSync(join(canonicalDir, 'notes.md'), 'local edit\n');
+
+    const status = await buildOverwriteStatus([skillName], ['amp'], false, {
+      cwd: testDir,
+      installMode: 'symlink',
+    });
+
+    expect(status.get(skillName)?.get('amp')).toEqual({
+      installed: true,
+      modified: true,
+    });
   });
 
   it('should filter skills by name with --skill flag', () => {
