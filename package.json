@@ -110,11 +110,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/parlance-labs/skills.git"
+    "url": "git+https://github.com/parlance-labs/private-skills-cli.git"
   },
-  "homepage": "https://github.com/parlance-labs/skills#readme",
+  "homepage": "https://github.com/parlance-labs/private-skills-cli#readme",
   "bugs": {
-    "url": "https://github.com/parlance-labs/skills/issues"
+    "url": "https://github.com/parlance-labs/private-skills-cli/issues"
   },
   "author": "",
   "license": "MIT",

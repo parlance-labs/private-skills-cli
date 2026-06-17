@@ -6,6 +6,21 @@ import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
 
+/** Shape of the YAML frontmatter in a SKILL.md file. */
+interface SkillFrontmatter {
+  name?: string;
+  description?: string;
+  metadata?: {
+    internal?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+function asSkillFrontmatter(data: Record<string, unknown>): SkillFrontmatter {
+  return data as SkillFrontmatter;
+}
+
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
 const AGENT_PROJECT_SKILL_DIRS = [
@@ -67,7 +82,8 @@ export async function parseSkillMd(
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
-    const { data } = parseFrontmatter(content);
+    const { data: rawData } = parseFrontmatter(content);
+    const data = asSkillFrontmatter(rawData);
 
     if (!data.name || !data.description) {
       return null;

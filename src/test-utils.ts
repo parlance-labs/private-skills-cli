@@ -5,6 +5,11 @@ import { stripTerminalEscapes } from './sanitize.ts';
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
 
+/** Default env overrides applied to every CLI subprocess in tests. */
+const TEST_ENV_DEFAULTS: Record<string, string> = {
+  SKILLS_FORCE_AGENT_DETECTION: '0',
+};
+
 export function stripAnsi(str: string): string {
   return stripTerminalEscapes(str);
 }
@@ -32,7 +37,7 @@ export function runCli(
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: env ? { ...process.env, ...env } : undefined,
+      env: { ...process.env, ...TEST_ENV_DEFAULTS, ...env },
       timeout: timeout ?? 30000,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
@@ -61,6 +66,7 @@ export function runCliWithInput(
       cwd,
       input: input + '\n',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...TEST_ENV_DEFAULTS },
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

@@ -1,26 +1,29 @@
-# skills
+# @parlance-labs/skills
 
-The CLI for the open agent skills ecosystem.
+CLI for the Parlance Labs private skills ecosystem.
+
+- **Registry**: [parlance-labs/skills-registry](https://github.com/parlance-labs/skills-registry)
+- **Skills content**: [parlance-labs/private-skills](https://github.com/parlance-labs/private-skills)
 
 <!-- agent-list:start -->
 Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [67 more](#supported-agents).
 <!-- agent-list:end -->
 
-[![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
-
 ## Install a Skill
 
 ```bash
-npx skills add vercel-labs/agent-skills
+# From the Parlance private-skills repo
+npx @parlance-labs/skills add parlance-labs/private-skills
+
+# From any GitHub repo
+npx @parlance-labs/skills add owner/repo
 ```
 
 ## Use a Skill Without Installing
 
-Generate a prompt for one skill, or start a supported coding agent interactively:
-
 ```bash
-npx skills use vercel-labs/agent-skills@web-design-guidelines | claude
-npx skills use vercel-labs/agent-skills --skill web-design-guidelines --agent claude-code
+npx @parlance-labs/skills use parlance-labs/private-skills@my-skill | claude
+npx @parlance-labs/skills use parlance-labs/private-skills --skill my-skill --agent claude-code
 ```
 
 `skills use` resolves sources the same way as `skills add`, writes the selected skill files to a temporary directory, and prints only the generated prompt to stdout unless `--agent` is provided. With `--agent`, it starts one supported agent interactively with the generated prompt.
@@ -29,22 +32,22 @@ npx skills use vercel-labs/agent-skills --skill web-design-guidelines --agent cl
 
 ```bash
 # GitHub shorthand (owner/repo)
-npx skills add vercel-labs/agent-skills
+npx @parlance-labs/skills add parlance-labs/private-skills
 
 # Full GitHub URL
-npx skills add https://github.com/vercel-labs/agent-skills
+npx @parlance-labs/skills add https://github.com/parlance-labs/private-skills
 
 # Direct path to a skill in a repo
-npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines
+npx @parlance-labs/skills add https://github.com/parlance-labs/private-skills/tree/main/skills/my-skill
 
 # GitLab URL
-npx skills add https://gitlab.com/org/repo
+npx @parlance-labs/skills add https://gitlab.com/org/repo
 
 # Any git URL
-npx skills add git@github.com:vercel-labs/agent-skills.git
+npx @parlance-labs/skills add git@github.com:owner/repo.git
 
 # Local path
-npx skills add ./my-local-skills
+npx @parlance-labs/skills add ./my-local-skills
 ```
 
 ### Options
@@ -63,28 +66,28 @@ npx skills add ./my-local-skills
 
 ```bash
 # List skills in a repository
-npx skills add vercel-labs/agent-skills --list
+npx @parlance-labs/skills add parlance-labs/private-skills --list
 
 # Install specific skills
-npx skills add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
+npx @parlance-labs/skills add parlance-labs/private-skills --skill my-skill --skill another-skill
 
 # Install a skill with spaces in the name (must be quoted)
-npx skills add owner/repo --skill "Convex Best Practices"
+npx @parlance-labs/skills add owner/repo --skill "Convex Best Practices"
 
 # Install to specific agents
-npx skills add vercel-labs/agent-skills -a claude-code -a opencode
+npx @parlance-labs/skills add parlance-labs/private-skills -a claude-code -a opencode
 
 # Non-interactive installation (CI/CD friendly)
-npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
+npx @parlance-labs/skills add parlance-labs/private-skills --skill my-skill -g -a claude-code -y
 
 # Install all skills from a repo to all agents
-npx skills add vercel-labs/agent-skills --all
+npx @parlance-labs/skills add parlance-labs/private-skills --all
 
 # Install all skills to specific agents
-npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
+npx @parlance-labs/skills add parlance-labs/private-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
-npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+npx @parlance-labs/skills add parlance-labs/private-skills --agent '*' --skill my-skill
 ```
 
 ### Installation Scope
@@ -230,7 +233,7 @@ Skills let agents perform specialized tasks like:
 - Creating PRs following your team's conventions
 - Integrating with external tools (Linear, Notion, etc.)
 
-Discover skills at **[skills.sh](https://skills.sh)**
+Browse skills at **[skills.parlance-labs.com](https://skills.parlance-labs.com)**
 
 ## Supported Agents
 
@@ -488,7 +491,7 @@ Ensure you have write access to the target directory.
 
 ```bash
 # Install internal skills
-INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
+INSTALL_INTERNAL_SKILLS=1 npx @parlance-labs/skills add parlance-labs/private-skills --list
 ```
 
 ## Telemetry
@@ -499,35 +502,9 @@ Telemetry is automatically disabled in CI environments.
 
 ## Related Links
 
+- [Parlance Labs Skills Registry](https://github.com/parlance-labs/skills-registry)
+- [Parlance Labs Private Skills](https://github.com/parlance-labs/private-skills)
 - [Agent Skills Specification](https://agentskills.io)
-- [Skills Directory](https://skills.sh)
-- [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
-- [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
-- [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
-- [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
-- [OpenClaw Skills Documentation](https://docs.openclaw.ai/tools/skills)
-- [Cline Skills Documentation](https://docs.cline.bot/features/skills)
-- [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
-- [Codex Skills Documentation](https://developers.openai.com/codex/skills)
-- [Command Code Skills Documentation](https://commandcode.ai/docs/skills)
-- [Crush Skills Documentation](https://github.com/charmbracelet/crush?tab=readme-ov-file#agent-skills)
-- [Cursor Skills Documentation](https://cursor.com/docs/context/skills)
-- [Firebender Skills Documentation](https://docs.firebender.com/multi-agent/skills)
-- [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
-- [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
-- [iFlow CLI Skills Documentation](https://platform.iflow.cn/en/cli/examples/skill)
-- [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-code/en/customization/skills)
-- [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
-- [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
-- [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
-- [Qwen Code Skills Documentation](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/)
-- [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
-- [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
-- [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
-- [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
-- [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
-- [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
-- [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
 
 ## License
 

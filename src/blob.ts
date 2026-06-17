@@ -174,22 +174,22 @@ export async function fetchRepoTree(
   }
 
   // First pass: unauthenticated.
-  let rateLimited = false;
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, null);
     if (result.tree) return result.tree;
     if (result.rateLimited) {
       // All branches share the same rate-limit bucket on this IP, so it's
       // pointless to keep trying other branches in this pass.
-      rateLimited = true;
+      _rateLimitedThisSession = true;
       break;
     }
   }
 
-  if (!rateLimited || !getToken) return null;
+  // Unauthenticated requests failed (rate-limit, private repo 404/403, or
+  // network error). Fall back to authenticated requests when a token
+  // resolver is available.
+  if (!getToken) return null;
 
-  // Lazy fallback: rate limit hit and a token resolver was provided.
-  _rateLimitedThisSession = true;
   const token = getToken();
   if (!token) return null;
 

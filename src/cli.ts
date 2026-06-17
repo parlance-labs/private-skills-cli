@@ -383,7 +383,8 @@ async function main(): Promise<void> {
     default:
       console.log(`Unknown command: ${command}`);
       console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      process.exitCode = 1;
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(0)));
+main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
