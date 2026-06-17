@@ -25,9 +25,11 @@ import {
 } from './git.ts';
 
 function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
-  return {
+  const client = {
     clone,
+    env: vi.fn().mockReturnThis(),
   };
+  return client;
 }
 
 function mockExecFileSuccess(stdout = '', stderr = '') {

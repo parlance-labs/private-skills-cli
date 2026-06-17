@@ -91,19 +91,22 @@ describe('fetchRepoTree lazy auth fallback', () => {
     );
   });
 
-  it('does not invoke the token resolver on a non-rate-limit 403', async () => {
-    // A 403 for a private repo (permission denied) is not retryable.
-    // The fallback should NOT trigger and should NOT spawn `gh auth token`.
+  it('falls back to token on a non-rate-limit 403 (private repo)', async () => {
+    // A 403/404 for a private repo should trigger the auth fallback so
+    // private-repo tree fetches work when a token is available.
     fetchMock
+      // Unauth attempts for HEAD, main, master → all 403
       .mockResolvedValueOnce(permissionDeniedResponse())
       .mockResolvedValueOnce(permissionDeniedResponse())
-      .mockResolvedValueOnce(permissionDeniedResponse());
-    const getToken = vi.fn(() => 'should-not-be-called');
+      .mockResolvedValueOnce(permissionDeniedResponse())
+      // Auth retry for HEAD → success
+      .mockResolvedValueOnce(okResponse(SAMPLE_TREE));
+    const getToken = vi.fn(() => 'ghp_private_token');
 
     const result = await fetchRepoTree('private/repo', undefined, getToken);
 
-    expect(result).toBeNull();
-    expect(getToken).not.toHaveBeenCalled();
+    expect(result?.sha).toBe('deadbeef');
+    expect(getToken).toHaveBeenCalledTimes(1);
   });
 
   it('returns null gracefully when rate-limited and no token resolver is provided', async () => {

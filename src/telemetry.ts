@@ -3,6 +3,19 @@ const TELEMETRY_URL =
 const AUDIT_URL =
   process.env.SKILLS_AUDIT_URL || 'https://skills-telemetry.parlance-labs.com/audit';
 
+/**
+ * True when the operator has explicitly pointed telemetry at their own endpoint
+ * (e.g. their private skills registry's `/api/t`) via SKILLS_TELEMETRY_URL.
+ *
+ * Install telemetry is normally skipped for private repos so a private-repo
+ * install is never leaked to the default public telemetry host. But when the
+ * operator configures their own endpoint they own that data and want private
+ * installs counted on their leaderboard, so the privacy gate is lifted.
+ */
+export function isCustomTelemetryEndpoint(): boolean {
+  return Boolean(process.env.SKILLS_TELEMETRY_URL);
+}
+
 interface InstallTelemetryData {
   event: 'install';
   source: string;
