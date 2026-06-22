@@ -15,6 +15,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { toSkillSlug } from './slug.ts';
 import type { Skill } from './types.ts';
 import { PRIORITY_SKILL_PREFIXES, SKIP_DIR_SET } from './skill-discovery-paths.ts';
+import { skillFolderFromMdPath } from './skill-path.ts';
 
 // ─── Types ───
 
@@ -223,17 +224,7 @@ export async function fetchRepoTree(
  * This replaces the per-skill GitHub API call previously done in fetchSkillFolderHash().
  */
 export function getSkillFolderHashFromTree(tree: RepoTree, skillPath: string): string | null {
-  let folderPath = skillPath.replace(/\\/g, '/');
-
-  // Remove SKILL.md suffix to get folder path (case-insensitive)
-  if (folderPath.toLowerCase().endsWith('/skill.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.toLowerCase().endsWith('skill.md')) {
-    folderPath = folderPath.slice(0, -8);
-  }
-  if (folderPath.endsWith('/')) {
-    folderPath = folderPath.slice(0, -1);
-  }
+  const folderPath = skillFolderFromMdPath(skillPath);
 
   // Root-level skill
   if (!folderPath) {
@@ -509,14 +500,6 @@ export async function tryBlobInstall(
 
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
-    // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
-    const mdPathLower = skill.mdPath.toLowerCase();
-    const folderPath = mdPathLower.endsWith('/skill.md')
-      ? skill.mdPath.slice(0, -9)
-      : mdPathLower === 'skill.md'
-        ? ''
-        : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
-
     return {
       name: skill.name,
       description: skill.description,
