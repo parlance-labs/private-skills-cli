@@ -1,3 +1,5 @@
+import { skillFolderFromMdPath } from './skill-path.ts';
+
 export interface UpdateSourceEntry {
   source: string;
   sourceUrl: string;
@@ -16,23 +18,6 @@ export function formatSourceInput(sourceUrl: string, ref?: string): string {
     return sourceUrl;
   }
   return `${sourceUrl}#${ref}`;
-}
-
-/**
- * Derive the skill's folder path from a SKILL.md-terminated skillPath.
- * Returns '' when the skill lives at the repo root.
- */
-function deriveSkillFolder(skillPath: string): string {
-  let folder = skillPath;
-  if (folder.endsWith('/SKILL.md')) {
-    folder = folder.slice(0, -9);
-  } else if (folder.endsWith('SKILL.md')) {
-    folder = folder.slice(0, -8);
-  }
-  if (folder.endsWith('/')) {
-    folder = folder.slice(0, -1);
-  }
-  return folder;
 }
 
 /**
@@ -61,7 +46,7 @@ function appendFolderAndRef(source: string, skillPath: string, ref?: string): st
   if (!supportsAppendedSubpath(source)) {
     return formatSourceInput(source, ref);
   }
-  const folder = deriveSkillFolder(skillPath);
+  const folder = skillFolderFromMdPath(skillPath);
   const withFolder = folder ? `${source}/${folder}` : source;
   return ref ? `${withFolder}#${ref}` : withFolder;
 }
