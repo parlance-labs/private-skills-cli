@@ -13,6 +13,7 @@ vi.mock('child_process', async () => {
 
 import {
   GitCloneError,
+  assertSafeGitUrl,
   cloneRepo,
   isGitHubHttpsCloneUrl,
   isGitHubSsoAuthError,
@@ -76,8 +77,15 @@ function expectGitCloneCall(callIndex: number, url: string, tempDir: string, ref
       'filter.lfs.clean=',
       '-c',
       'filter.lfs.process=',
+      '-c',
+      'protocol.ext.allow=never',
+      '-c',
+      'protocol.fd.allow=never',
+      '-c',
+      'protocol.file.allow=user',
       'clone',
       ...cloneOptions,
+      '--',
       url,
       tempDir,
     ],
@@ -85,6 +93,7 @@ function expectGitCloneCall(callIndex: number, url: string, tempDir: string, ref
       env: expect.objectContaining({
         GIT_TERMINAL_PROMPT: '0',
         GIT_LFS_SKIP_SMUDGE: '1',
+        GIT_PROTOCOL_FROM_USER: '0',
       }),
     }),
     expect.any(Function)
@@ -259,5 +268,62 @@ describe('git clone fallbacks', () => {
     });
 
     expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('assertSafeGitUrl', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+  it('allows https URLs', () => {
+    expect(() => assertSafeGitUrl('https://github.com/owner/repo.git')).not.toThrow();
+  });
+
+  it('allows http URLs', () => {
+    expect(() => assertSafeGitUrl('http://github.com/owner/repo.git')).not.toThrow();
+  });
+
+  it('allows git:// URLs', () => {
+    expect(() => assertSafeGitUrl('git://github.com/owner/repo.git')).not.toThrow();
+  });
+
+  it('allows ssh:// URLs', () => {
+    expect(() => assertSafeGitUrl('ssh://git@github.com/owner/repo.git')).not.toThrow();
+  });
+
+  it('allows git@host:owner/repo SSH shorthand', () => {
+    expect(() => assertSafeGitUrl('git@github.com:owner/repo.git')).not.toThrow();
+    expect(() => assertSafeGitUrl('git@gitlab.com:org/repo.git')).not.toThrow();
+  });
+
+  it('rejects ext:: transport (RCE)', () => {
+    expect(() => assertSafeGitUrl("ext::sh -c 'touch /tmp/pwned'")).toThrow(
+      /remote-helper transport/
+    );
+  });
+
+  it('rejects file:: transport', () => {
+    expect(() => assertSafeGitUrl('file::/etc/passwd')).toThrow(/remote-helper transport/);
+  });
+
+  it('rejects fd:: transport', () => {
+    expect(() => assertSafeGitUrl('fd::17')).toThrow(/remote-helper transport/);
+  });
+
+  it('rejects URLs starting with -', () => {
+    expect(() => assertSafeGitUrl('--upload-pack=evil')).toThrow(/starts with '-'/);
+  });
+
+  it('rejects unknown schemes', () => {
+    expect(() => assertSafeGitUrl('ftp://example.com/repo.git')).toThrow(/unsupported URL scheme/);
+  });
+
+  it('rejects ext:: with encoded payloads', () => {
+    expect(() => assertSafeGitUrl('ext::sh%20-c%20id')).toThrow(/remote-helper transport/);
+  });
+
+  it('rejects cloneRepo with ext:: URL before any git call', async () => {
+    await expect(cloneRepo("ext::sh -c 'id'")).rejects.toThrow(/remote-helper transport/);
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 });
