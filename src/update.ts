@@ -512,7 +512,8 @@ export async function updateGlobalSkills(
         }
       }
     } catch (error) {
-      const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
+      const details =
+        error instanceof RegistryInstallError ? `: ${sanitizeMetadata(error.message)}` : '';
       console.log(
         `  ${DIM}✗ Failed to check skills from ${sanitizeMetadata(source)}${details}${RESET}`
       );
@@ -696,7 +697,8 @@ export async function updateProjectSkills(
         discoveredPaths
       );
     } catch (error) {
-      const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
+      const details =
+        error instanceof RegistryInstallError ? `: ${sanitizeMetadata(error.message)}` : '';
       console.log(
         `${DIM}✗ Failed to check for deleted skills from ${sanitizeMetadata(source)}${details}${RESET}`
       );
@@ -749,7 +751,9 @@ export function printLegacyProjectSkills(
   for (const skill of legacy) {
     const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
     console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);
-    console.log(`    ${DIM}To refresh: ${TEXT}npx skills add ${reinstall} -y${RESET}`);
+    console.log(
+      `    ${DIM}To refresh: ${TEXT}npx skills add ${sanitizeMetadata(reinstall)} -y${RESET}`
+    );
   }
 }
 
