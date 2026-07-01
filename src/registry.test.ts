@@ -68,6 +68,14 @@ describe('isRegistryMediatedParsedSource', () => {
     expect(mediated('git@github.com:parlance-labs/private-skills.git')).toBe(true);
   });
 
+  it('mediates SSH URLs with non-lowercase github.com host', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('git@GitHub.com:attacker/evil.git')).toBe(true);
+    expect(mediated('git@GITHUB.COM:attacker/evil.git')).toBe(true);
+    expect(mediated('git@Github.Com:attacker/evil.git')).toBe(true);
+  });
+
   it('does not intercept GitLab sources when wildcard registry mediation is enabled', () => {
     process.env.SKILLS_REGISTRY_SOURCES = '*';
 

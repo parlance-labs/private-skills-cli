@@ -91,11 +91,14 @@ function isTwoPartOwnerRepo(ownerRepo: string): boolean {
 function isGitHubParsedSource(parsed: ParsedSource): boolean {
   if (parsed.type === 'github') return true;
 
-  if (parsed.url.startsWith('git@github.com:')) return true;
+  // Case-insensitive check for scp-like SSH form (git@github.com:owner/repo.git).
+  // The host portion must be compared case-insensitively to prevent bypassing
+  // registry mediation with a capitalized host (e.g. git@GitHub.com:owner/repo).
+  if (/^git@github\.com:/i.test(parsed.url)) return true;
 
   try {
     const url = new URL(parsed.url);
-    return url.hostname === 'github.com';
+    return url.hostname.toLowerCase() === 'github.com';
   } catch {
     return false;
   }
