@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
@@ -173,7 +173,13 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files);
   } else {
-    await copySkillDirectory(skill.path, skillDir);
+    let resolvedRoot: string;
+    try {
+      resolvedRoot = await realpath(skill.path);
+    } catch {
+      throw new Error(`Cannot resolve skill path: ${skill.path}`);
+    }
+    await copySkillDirectory(resolvedRoot, skillDir, resolvedRoot);
   }
 
   const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
@@ -565,37 +571,70 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
+async function copySkillDirectory(
+  src: string,
+  dest: string,
+  sourceRoot: string,
+  activeDirs: ReadonlySet<string> = new Set()
+): Promise<void> {
+  let realSrc: string;
+  try {
+    realSrc = await realpath(src);
+  } catch {
+    return;
+  }
+  if (!isPathSafe(sourceRoot, realSrc)) return;
+  if (activeDirs.has(realSrc)) {
+    console.warn(`Skipping recursive symlink cycle: ${src}`);
+    return;
+  }
+  const nextActiveDirs = new Set(activeDirs).add(realSrc);
+
   await mkdir(dest, { recursive: true });
-  const entries = await readdir(src, { withFileTypes: true });
+  const entries = await readdir(realSrc, { withFileTypes: true });
 
   await Promise.all(
     entries
       .filter((entry) => !isExcluded(entry.name, entry.isDirectory()))
       .map(async (entry) => {
-        const srcPath = join(src, entry.name);
+        const srcPath = join(realSrc, entry.name);
         const destPath = join(dest, entry.name);
         if (!isPathSafe(dest, destPath)) return;
 
-        if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
+        // Security: reject symlinks whose real target escapes the source skill
+        // directory (CWE-59).
+        if (entry.isSymbolicLink()) {
+          let realTarget: string;
+          try {
+            realTarget = await realpath(srcPath);
+          } catch {
+            console.warn(`Skipping broken symlink: ${srcPath}`);
+            return;
+          }
+          if (!isPathSafe(sourceRoot, realTarget)) {
+            console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
+            return;
+          }
+          let isDir: boolean;
+          try {
+            isDir = (await stat(realTarget)).isDirectory();
+          } catch {
+            return;
+          }
+          if (isDir) {
+            await copySkillDirectory(realTarget, destPath, sourceRoot, nextActiveDirs);
+            return;
+          }
+          await cp(realTarget, destPath, { recursive: false });
           return;
         }
 
-        try {
-          await cp(srcPath, destPath, { dereference: true, recursive: true });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            'code' in err &&
-            (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-            entry.isSymbolicLink()
-          ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
-            return;
-          }
-          throw err;
+        if (entry.isDirectory()) {
+          await copySkillDirectory(srcPath, destPath, sourceRoot, nextActiveDirs);
+          return;
         }
+
+        await cp(srcPath, destPath, { recursive: false });
       })
   );
 }
