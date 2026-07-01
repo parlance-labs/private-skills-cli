@@ -255,7 +255,9 @@ export function printSkippedSkills(skipped: SkippedSkill[]): void {
       const names = skills.map((s) => sanitizeMetadata(s.name)).join(', ');
       console.log(`  ${TEXT}•${RESET} ${names} ${DIM}(${reason})${RESET}`);
     }
-    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${source} -g -y${RESET}`);
+    console.log(
+      `    ${DIM}To update: ${TEXT}npx skills add ${sanitizeMetadata(source)} -g -y${RESET}`
+    );
   }
 }
 
@@ -388,7 +390,9 @@ export async function updateGlobalSkills(
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    process.stdout.write(
+      `\r${DIM}Checking skills from source: ${sanitizeMetadata(source)}${RESET}\x1b[K\n`
+    );
 
     try {
       const registrySource = registryOwnerRepoForUpdate(firstEntry);
@@ -434,7 +438,7 @@ export async function updateGlobalSkills(
         const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
 
         if (!tree) {
-          console.log(`  ${DIM}✗ Failed to fetch tree for ${source}${RESET}`);
+          console.log(`  ${DIM}✗ Failed to fetch tree for ${sanitizeMetadata(source)}${RESET}`);
           continue;
         }
 
@@ -443,7 +447,7 @@ export async function updateGlobalSkills(
         // comparisons. Fall through to the clone path, which sees every file.
         if (tree.truncated) {
           console.log(
-            `  ${DIM}⚠ Tree listing for ${source} was truncated by GitHub; cloning for an accurate check${RESET}`
+            `  ${DIM}⚠ Tree listing for ${sanitizeMetadata(source)} was truncated by GitHub; cloning for an accurate check${RESET}`
           );
         } else {
           const discoveredPaths = findSkillMdPaths(tree);
@@ -509,7 +513,9 @@ export async function updateGlobalSkills(
       }
     } catch (error) {
       const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
-      console.log(`  ${DIM}✗ Failed to check skills from ${source}${details}${RESET}`);
+      console.log(
+        `  ${DIM}✗ Failed to check skills from ${sanitizeMetadata(source)}${details}${RESET}`
+      );
     } finally {
       if (tempDir) await cleanupTempDir(tempDir);
     }
@@ -691,7 +697,9 @@ export async function updateProjectSkills(
       );
     } catch (error) {
       const details = error instanceof RegistryInstallError ? `: ${error.message}` : '';
-      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${details}${RESET}`);
+      console.log(
+        `${DIM}✗ Failed to check for deleted skills from ${sanitizeMetadata(source)}${details}${RESET}`
+      );
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
