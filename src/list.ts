@@ -1,7 +1,7 @@
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
-import { sanitizeMetadata } from './sanitize.ts';
+import { sanitizeMetadata, formatGroupTitle } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 import { formatList, shortenPath } from './cli-format.ts';
 
@@ -144,11 +144,7 @@ export async function runList(args: string[]): Promise<void> {
     // Print groups sorted alphabetically
     const sortedGroups = Object.keys(groupedSkills).sort();
     for (const group of sortedGroups) {
-      // Convert kebab-case to Title Case for display header
-      const title = sanitizeMetadata(group)
-        .split('-')
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
+      const title = formatGroupTitle(group);
 
       console.log(`${BOLD}${title}${RESET}`);
       const skills = groupedSkills[group];
