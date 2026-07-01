@@ -8,6 +8,8 @@
  *   - C1 control codes (0x80–0x9F)
  *   - Raw control characters (BEL, BS, etc.)     — except \t and \n which are safe
  *
+ * Postcondition: output is guaranteed free of 0x1b, 0x07, and 0x80–0x9F.
+ *
  * This defends against CWE-150 (terminal escape injection) where
  * untrusted data (e.g., skill name/description from SKILL.md frontmatter
  * or remote APIs) could clear the screen, move the cursor, change the
@@ -42,7 +44,12 @@ const RESIDUAL_RE = /[\x07\x1b\x9b]/g;
  * Strip all terminal escape sequences and dangerous control characters
  * from a string.
  *
- * The stripping order is critical to prevent bypass via "spacer" bytes:
+ * Postcondition: output contains no 0x1b (ESC), 0x07 (BEL), or 0x80–0x9F
+ * (C1) bytes. This is enforced by the Phase 3 catch-all regardless of
+ * ordering — Phases 1–2 improve cosmetic output (stripping inert tails)
+ * but security rests on Phase 3 unconditionally removing introducers.
+ *
+ * Phase ordering rationale:
  *   1. Remove C1 codes and raw control chars (excl. BEL) FIRST — these
  *      can act as inert spacers that prevent sequence regexes from
  *      matching (e.g. \x1b\x01[2J won't match CSI_RE because of the
@@ -53,12 +60,13 @@ const RESIDUAL_RE = /[\x07\x1b\x9b]/g;
  *   3. Unconditionally strip any residual BEL, ESC, or CSI-introducer
  *      bytes that survived (e.g. a lone trailing \x1b, or a BEL that
  *      was not part of a matched OSC).
- *
- * Safe for use on untrusted input before printing to the terminal.
  */
 export function stripTerminalEscapes(str: string): string {
+  // Length cap: prevent quadratic regex blowup on unterminated OSC/DCS sequences.
+  // Metadata fields (names, descriptions) have no legitimate need to exceed 4 KB.
+  const capped = str.length > 4096 ? str.slice(0, 4096) : str;
   return (
-    str
+    capped
       // Phase 1: Remove spacer bytes that could prevent sequence matching
       .replace(C1_RE, '') // C1 control codes (0x80-0x9F)
       .replace(CONTROL_PRE_RE, '') // Raw control chars (keep \t, \n, BEL)
@@ -82,7 +90,7 @@ export function stripTerminalEscapes(str: string): string {
 export function sanitizeMetadata(str: string): string {
   return stripTerminalEscapes(str)
     .replace(/[\r\n]+/g, ' ')
-    .replace(RESIDUAL_RE, '') // Re-check after newline collapse (ESC+\n → ESC+space)
+    .replace(RESIDUAL_RE, '') // Defensive: can't reintroduce ESC/BEL today, but guards against future changes
     .trim();
 }
 

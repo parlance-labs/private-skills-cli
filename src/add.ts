@@ -1361,11 +1361,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       if (hasGroups) {
         // Build grouped options for groupMultiselect
-        const kebabToTitle = (s: string) => formatGroupTitle(s);
-
         const grouped: Record<string, p.Option<Skill>[]> = {};
         for (const s of sortedSkills) {
-          const groupName = s.pluginName ? kebabToTitle(s.pluginName) : 'Other';
+          const groupName = s.pluginName ? formatGroupTitle(s.pluginName) : 'Other';
           if (!grouped[groupName]) grouped[groupName] = [];
           grouped[groupName]!.push({
             value: s,
