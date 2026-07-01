@@ -88,17 +88,29 @@ function isTwoPartOwnerRepo(ownerRepo: string): boolean {
   return /^[^/\s]+\/[^/\s]+$/.test(ownerRepo);
 }
 
+function normalizeHost(h: string): string {
+  return h.toLowerCase().replace(/\.+$/, '');
+}
+
+function isGitHubHost(h: string): boolean {
+  const n = normalizeHost(h);
+  return n === 'github.com' || n === 'ssh.github.com';
+}
+
 function isGitHubParsedSource(parsed: ParsedSource): boolean {
   if (parsed.type === 'github') return true;
 
-  // Case-insensitive check for scp-like SSH form (git@github.com:owner/repo.git).
-  // The host portion must be compared case-insensitively to prevent bypassing
-  // registry mediation with a capitalized host (e.g. git@GitHub.com:owner/repo).
-  if (/^git@github\.com:/i.test(parsed.url)) return true;
+  // Extract host from scp-like SSH form (git@host:path) and check against
+  // known GitHub hosts. Covers github.com, ssh.github.com (SSH-over-443),
+  // and trailing-dot FQDN variants that are DNS-equivalent.
+  const scpHost = parsed.url.match(/^git@([^:]+):/);
+  if (scpHost && isGitHubHost(scpHost[1]!)) return true;
 
   try {
     const url = new URL(parsed.url);
-    return url.hostname.toLowerCase() === 'github.com';
+    // For non-special URL schemes (like ssh:), the WHATWG URL API does NOT
+    // lowercase the hostname, so explicit normalization is required.
+    return isGitHubHost(url.hostname);
   } catch {
     return false;
   }

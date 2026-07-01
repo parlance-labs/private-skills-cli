@@ -76,6 +76,40 @@ describe('isRegistryMediatedParsedSource', () => {
     expect(mediated('git@Github.Com:attacker/evil.git')).toBe(true);
   });
 
+  it('mediates ssh:// URLs with non-lowercase github.com host', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('ssh://git@GitHub.COM/attacker/evil.git')).toBe(true);
+  });
+
+  it('mediates GitHub SSH-over-443 host (ssh.github.com)', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('git@ssh.github.com:attacker/evil.git')).toBe(true);
+    expect(mediated('ssh://git@ssh.github.com:443/attacker/evil.git')).toBe(true);
+  });
+
+  it('mediates trailing-dot FQDN variants of github.com', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('git@github.com.:attacker/evil.git')).toBe(true);
+    expect(mediated('https://github.com./attacker/evil.git')).toBe(true);
+  });
+
+  it('mediates URLs with uppercase schemes', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('SSH://git@github.com/attacker/evil.git')).toBe(true);
+    expect(mediated('HTTPS://github.com/attacker/evil.git')).toBe(true);
+  });
+
+  it('does not mediate non-GitHub git hosts', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('git@gitlab.com:owner/repo.git')).toBe(false);
+    expect(mediated('https://example.com/owner/repo.git')).toBe(false);
+  });
+
   it('does not intercept GitLab sources when wildcard registry mediation is enabled', () => {
     process.env.SKILLS_REGISTRY_SOURCES = '*';
 

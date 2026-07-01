@@ -26,7 +26,9 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   }
 
   // Handle SSH URLs with a scheme (e.g., ssh://git@host:7999/owner/repo.git)
-  if (parsed.url.startsWith('ssh://')) {
+  // URI schemes are case-insensitive per RFC 3986, so compare lowercased.
+  const urlLower = parsed.url.toLowerCase();
+  if (urlLower.startsWith('ssh://')) {
     try {
       const url = new URL(parsed.url);
       let path = url.pathname.slice(1);
@@ -42,7 +44,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   }
 
   // Handle HTTP(S) URLs
-  if (!parsed.url.startsWith('http://') && !parsed.url.startsWith('https://')) {
+  if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
     return null;
   }
 
@@ -413,16 +415,19 @@ export function parseSource(input: string): ParsedSource {
  * Also excludes URLs that look like git repos (.git suffix).
  */
 function isWellKnownUrl(input: string): boolean {
-  if (!input.startsWith('http://') && !input.startsWith('https://')) {
+  const lower = input.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
     return false;
   }
 
   try {
     const parsed = new URL(input);
 
-    // Exclude known git hosts that have their own handling
+    // Exclude known git hosts that have their own handling.
+    // Normalize hostname (lowercase + strip trailing dot) to prevent bypasses.
+    const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
     const excludedHosts = ['github.com', 'gitlab.com', 'raw.githubusercontent.com'];
-    if (excludedHosts.includes(parsed.hostname)) {
+    if (excludedHosts.includes(host)) {
       return false;
     }
 
