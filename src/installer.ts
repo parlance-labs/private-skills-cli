@@ -386,7 +386,8 @@ export async function installSkillForAgent(
     installName: skill.name || basename(skill.path),
     agentType,
     options,
-    writeToDirectory: (targetDir) => copyDirectory(skill.path, targetDir, resolvedSourceRoot),
+    writeToDirectory: (targetDir) =>
+      copyDirectory(resolvedSourceRoot, targetDir, resolvedSourceRoot),
     skipMissingProjectAgentDir: true,
   });
 }
@@ -400,17 +401,37 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
-async function copyDirectory(src: string, dest: string, sourceRoot: string): Promise<void> {
+async function copyDirectory(
+  src: string,
+  dest: string,
+  sourceRoot: string,
+  activeDirs: ReadonlySet<string> = new Set()
+): Promise<void> {
+  // Resolve the real path of the current source directory to detect cycles
+  // and verify it hasn't escaped the source root (e.g. via intermediate symlinks).
+  let realSrc: string;
+  try {
+    realSrc = await realpath(src);
+  } catch {
+    return;
+  }
+  if (!isPathSafe(sourceRoot, realSrc)) return;
+  if (activeDirs.has(realSrc)) {
+    console.warn(`Skipping recursive symlink cycle: ${src}`);
+    return;
+  }
+  const nextActiveDirs = new Set(activeDirs).add(realSrc);
+
   await mkdir(dest, { recursive: true });
 
-  const entries = await readdir(src, { withFileTypes: true });
+  const entries = await readdir(realSrc, { withFileTypes: true });
 
   // Copy files and directories in parallel
   await Promise.all(
     entries
       .filter((entry) => !isExcluded(entry.name, entry.isDirectory()))
       .map(async (entry) => {
-        const srcPath = join(src, entry.name);
+        const srcPath = join(realSrc, entry.name);
         const destPath = join(dest, entry.name);
 
         // Security: reject symlinks whose real target escapes the source skill
@@ -424,7 +445,6 @@ async function copyDirectory(src: string, dest: string, sourceRoot: string): Pro
           try {
             realTarget = await realpath(srcPath);
           } catch {
-            // Broken symlink — skip it
             console.warn(`Skipping broken symlink: ${srcPath}`);
             return;
           }
@@ -432,46 +452,26 @@ async function copyDirectory(src: string, dest: string, sourceRoot: string): Pro
             console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
             return;
           }
-          // Safe symlink — if it points to a directory, recurse so nested
-          // symlinks are also checked rather than blindly dereferenced by cp.
           let isDir: boolean;
           try {
             isDir = (await stat(realTarget)).isDirectory();
           } catch {
-            // stat failed — skip
             return;
           }
           if (isDir) {
-            await copyDirectory(srcPath, destPath, sourceRoot);
+            await copyDirectory(realTarget, destPath, sourceRoot, nextActiveDirs);
             return;
           }
+          // Copy from the already-validated real target to avoid a second
+          // dereference by cp (TOCTOU window).
+          await cp(realTarget, destPath, { recursive: false });
+          return;
         }
 
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath, sourceRoot);
+          await copyDirectory(srcPath, destPath, sourceRoot, nextActiveDirs);
         } else {
-          try {
-            await cp(srcPath, destPath, {
-              // Dereference remaining (file) symlinks that passed the containment
-              // check above so the copied file is a regular file, not a dangling
-              // symlink in the new location.
-              dereference: true,
-              recursive: true,
-            });
-          } catch (err: unknown) {
-            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
-            // instead of aborting the entire install.
-            if (
-              err instanceof Error &&
-              'code' in err &&
-              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-              entry.isSymbolicLink()
-            ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
-            } else {
-              throw err;
-            }
-          }
+          await cp(srcPath, destPath, { recursive: false });
         }
       })
   );
