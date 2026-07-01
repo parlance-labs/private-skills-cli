@@ -147,6 +147,61 @@ describe('stripTerminalEscapes', () => {
       expect(result).not.toContain('\x1b');
     });
   });
+
+  describe('interposed control-char bypass (CWE-150)', () => {
+    it('strips ESC + DEL (0x7f) + CSI body', () => {
+      // \x1b\x7f[31m — DEL between ESC and [ defeats single-pass CSI_RE.
+      // 3-phase approach: Phase 1 strips DEL, Phase 2 matches reassembled CSI.
+      const result = stripTerminalEscapes('\x1b\x7f[31m');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + DEL + screen-clear body', () => {
+      const result = stripTerminalEscapes('evil\x1b\x7f[2Jname');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('evilname');
+    });
+
+    it('strips ESC + C1 byte (0x80) + CSI body', () => {
+      // Phase 1: C1_RE removes 0x80, Phase 2: CSI_RE matches reassembled \x1b[31m.
+      const result = stripTerminalEscapes('\x1b\x80[31m');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + multiple interposed bytes + CSI body', () => {
+      const result = stripTerminalEscapes('\x1b\x7f\x7f[31m');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + SUB (0x1a) + CSI body', () => {
+      const result = stripTerminalEscapes('\x1b\x1a[2J');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + FS (0x1c) + OSC-like body', () => {
+      const result = stripTerminalEscapes('\x1b\x1c]0;pwned\x07');
+      expect(result).not.toContain('\x1b');
+      expect(result).not.toContain('\x07');
+    });
+
+    it('strips lone ESC bytes', () => {
+      // ESC followed by printable char is consumed by SIMPLE_ESC_RE (two-byte escape)
+      expect(stripTerminalEscapes('hello\x1bworld')).toBe('helloorld');
+      // Truly lone ESC (end of string) is stripped by RESIDUAL_RE (Phase 3)
+      expect(stripTerminalEscapes('\x1b')).toBe('');
+      expect(stripTerminalEscapes('hello\x1b')).toBe('hello');
+    });
+
+    it('sanitizeMetadata also blocks interposed bypass', () => {
+      const result = sanitizeMetadata('  \x1b\x7f[31mhello\x1b\x7f[0m  ');
+      expect(result).not.toContain('\x1b');
+      expect(result).toBe('hello');
+    });
+  });
 });
 
 describe('sanitizeMetadata', () => {
