@@ -145,7 +145,7 @@ export async function runList(args: string[]): Promise<void> {
     const sortedGroups = Object.keys(groupedSkills).sort();
     for (const group of sortedGroups) {
       // Convert kebab-case to Title Case for display header
-      const title = group
+      const title = sanitizeMetadata(group)
         .split('-')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');

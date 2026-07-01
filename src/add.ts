@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { stripTerminalEscapes } from './sanitize.ts';
+import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { formatList, shortenPath } from './cli-format.ts';
 
@@ -1289,7 +1289,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const sortedGroups = Object.keys(groupedSkills).sort();
       for (const group of sortedGroups) {
         // Convert kebab-case to Title Case for display header
-        const title = group
+        const title = sanitizeMetadata(group)
           .split('-')
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(' ');
@@ -1366,7 +1366,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (hasGroups) {
         // Build grouped options for groupMultiselect
         const kebabToTitle = (s: string) =>
-          s
+          sanitizeMetadata(s)
             .split('-')
             .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
             .join(' ');
@@ -1775,7 +1775,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const sortedResultGroups = Object.keys(groupedResults).sort();
 
       for (const group of sortedResultGroups) {
-        const title = group
+        const title = sanitizeMetadata(group)
           .split('-')
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(' ');

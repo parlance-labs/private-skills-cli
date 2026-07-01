@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { join, dirname, resolve, normalize, sep } from 'path';
+import { sanitizeMetadata } from './sanitize.ts';
 
 /**
  * Check if a path is contained within a base directory.
@@ -152,7 +153,7 @@ export async function getPluginGroupings(basePath: string): Promise<Map<string, 
             const skillDir = join(pluginBase, skillPath);
             if (isContainedIn(skillDir, basePath)) {
               // Store absolute path as key for reliable matching
-              groupings.set(resolve(skillDir), plugin.name);
+              groupings.set(resolve(skillDir), sanitizeMetadata(plugin.name));
             }
           }
         }
@@ -171,7 +172,7 @@ export async function getPluginGroupings(basePath: string): Promise<Map<string, 
         if (!isValidRelativePath(skillPath)) continue;
         const skillDir = join(basePath, skillPath);
         if (isContainedIn(skillDir, basePath)) {
-          groupings.set(resolve(skillDir), manifest.name);
+          groupings.set(resolve(skillDir), sanitizeMetadata(manifest.name));
         }
       }
     }
