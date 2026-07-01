@@ -12,6 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import { stripTerminalEscapes, sanitizeMetadata, formatGroupTitle } from '../src/sanitize.ts';
 
+const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
+
 describe('stripTerminalEscapes', () => {
   describe('CSI sequences (ESC[...)', () => {
     it('strips SGR color codes', () => {
@@ -149,8 +151,6 @@ describe('stripTerminalEscapes', () => {
   });
 
   describe('interposed control-char bypass (CWE-150)', () => {
-    const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
-
     it('strips ESC + DEL (0x7f) + CSI body', () => {
       // \x1b\x7f[31m — DEL between ESC and [ defeats single-pass CSI_RE.
       // 3-phase approach: Phase 1 strips DEL, Phase 2 matches reassembled CSI.
@@ -195,6 +195,14 @@ describe('stripTerminalEscapes', () => {
       // After Phase 2, RESIDUAL_RE strips both ESC and BEL; residue '[31m' is inert.
       const result = stripTerminalEscapes('\x1b\x07[31m');
       expect(dangerous(result)).toBe(false);
+      expect(result).toBe('[31m');
+    });
+
+    it('strips spacer inside CSI body (ESC [ <ctrl> ...)', () => {
+      // Spacer inside the CSI parameter bytes; Phase 1 removes it, Phase 2 matches CSI.
+      const result = stripTerminalEscapes('\x1b[\x7f2J');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
     });
 
     it('strips ESC + printable char (simple two-byte escape)', () => {
@@ -252,7 +260,6 @@ describe('sanitizeMetadata', () => {
   });
 
   it('blocks interposed control-char bypass', () => {
-    const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
     const result = sanitizeMetadata('  \x1b\x7f[31mhello\x1b\x7f[0m  ');
     expect(dangerous(result)).toBe(false);
     expect(result).toBe('hello');
@@ -262,14 +269,13 @@ describe('sanitizeMetadata', () => {
     // Control char between ESC and [ prevented CSI_RE from matching in v1;
     // now Phase 1 removes spacer, Phase 2 matches the reassembled CSI sequence
     expect(stripTerminalEscapes('\x1b\x01[2J')).toBe('');
-    // Double-ESC: CSI_RE matches the second \x1b[2J, RESIDUAL_RE strips the lone leading \x1b
+    // Double-ESC: CSI_RE consumes the second ESC[2J; the leading lone ESC is removed by Phase 3 catch-all
     expect(stripTerminalEscapes('\x1b\x1b[2J')).toBe('');
-    // C1 spacer between ESC and parameter bytes
+    // C1 spacer between ESC and the CSI introducer `[`
     expect(stripTerminalEscapes('\x1b\x90[2J')).toBe('');
   });
 
   it('never leaves ESC/BEL/C1 introducer bytes in output', () => {
-    const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
     const payloads = [
       '\x1b\x01[2J',
       '\x9b2J',
