@@ -304,10 +304,10 @@ export async function checkAndPromptForDeletions(
   if (deletedSkills.length > 0) {
     console.log();
     console.log(
-      `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
+      `${DIM}Warning:${RESET} The following skills from ${DIM}${sanitizeMetadata(source)}${RESET} appear to have been deleted upstream:`
     );
     for (const s of deletedSkills) {
-      console.log(`  ${DIM}•${RESET} ${s}`);
+      console.log(`  ${DIM}•${RESET} ${sanitizeMetadata(s)}`);
     }
 
     const isNonInteractive = options.yes || !process.stdin.isTTY;
@@ -321,7 +321,7 @@ export async function checkAndPromptForDeletions(
 
       if (confirmed && !p.isCancel(confirmed)) {
         for (const s of deletedSkills) {
-          console.log(`${DIM}Removing${RESET} ${s}...`);
+          console.log(`${DIM}Removing${RESET} ${sanitizeMetadata(s)}...`);
           await removeCommand([s], { yes: true, global: isGlobal });
         }
       }
