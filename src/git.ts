@@ -104,11 +104,71 @@ const GIT_LFS_CONFIG = [
   'filter.lfs.process=',
 ];
 
+/**
+ * Allowed URL schemes for git clone. Rejects dangerous transports
+ * like ext:: (arbitrary command execution) and fd:: / file:: (local access).
+ */
+const ALLOWED_URL_PATTERNS: RegExp[] = [
+  /^https:\/\//i,
+  /^http:\/\//i,
+  /^git:\/\//i,
+  /^ssh:\/\//i,
+  /^git@[^:-][^:]*:.+/i, // SSH shorthand: git@host:owner/repo (reject dash-leading hosts)
+];
+
+/**
+ * Validate that a URL is safe to pass to `git clone`.
+ * Rejects ext:: (RCE via external transport), file::/fd:: (local access),
+ * any other `<transport>::` remote-helper form, and URLs starting with `-`
+ * (argument injection).
+ */
+export function assertSafeGitUrl(url: string): void {
+  if (url.startsWith('-')) {
+    throw new Error(
+      `Refusing to clone: URL starts with '-' which would be interpreted as a git option. ` +
+        `Use an absolute URL (e.g. https://...) instead.`
+    );
+  }
+
+  // Reject any <transport>:: remote-helper scheme (ext::, file::, fd::, etc.)
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*::/.test(url)) {
+    throw new Error(
+      `Refusing to clone: URL uses a git remote-helper transport ('${url.split('::')[0]}::'). ` +
+        `Only https://, http://, git://, ssh://, and git@host:path URLs are allowed.`
+    );
+  }
+
+  const isAllowed = ALLOWED_URL_PATTERNS.some((pattern) => pattern.test(url));
+  if (!isAllowed) {
+    throw new Error(
+      `Refusing to clone: unsupported URL scheme in '${url}'. ` +
+        `Only https://, http://, git://, ssh://, and git@host:path URLs are allowed.`
+    );
+  }
+
+  // For ssh:// URLs, reject dash-leading hostnames (CVE-2017-1000117 class)
+  if (/^ssh:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.startsWith('-')) {
+        throw new Error(
+          `Refusing to clone: ssh:// URL has a dash-leading hostname '${parsed.hostname}'. ` +
+            `This could be used for SSH option injection.`
+        );
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Refusing to clone')) throw e;
+      // URL parse failure on an already-allowed pattern is fine — git will reject it
+    }
+  }
+}
+
 function gitEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
     GIT_LFS_SKIP_SMUDGE: '1',
+    GIT_PROTOCOL_FROM_USER: '0',
     ...extraEnv,
   };
 }
@@ -167,10 +227,18 @@ async function gitClone(
   // git sees `filter=lfs` in .gitattributes, tries to run
   // `git-lfs filter-process`, and aborts checkout. Per-clone config disables
   // that filter so skill text files can still be read from the clone.
-  const configArgs = GIT_LFS_CONFIG.flatMap((config) => ['-c', config]);
+  const configArgs = [
+    ...GIT_LFS_CONFIG.flatMap((config) => ['-c', config]),
+    '-c',
+    'protocol.ext.allow=never',
+    '-c',
+    'protocol.fd.allow=never',
+    '-c',
+    'protocol.file.allow=never',
+  ];
 
   try {
-    await execFileAsync('git', [...configArgs, 'clone', ...cloneOptions, url, tempDir], {
+    await execFileAsync('git', [...configArgs, 'clone', ...cloneOptions, '--', url, tempDir], {
       timeout: CLONE_TIMEOUT_MS,
       env: gitEnv(extraEnv),
     });
@@ -237,6 +305,7 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
+  assertSafeGitUrl(url);
   await ensureGitAvailable(url);
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
