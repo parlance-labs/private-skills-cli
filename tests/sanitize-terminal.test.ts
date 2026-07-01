@@ -262,7 +262,7 @@ describe('sanitizeMetadata', () => {
     // Control char between ESC and [ prevented CSI_RE from matching in v1;
     // now Phase 1 removes spacer, Phase 2 matches the reassembled CSI sequence
     expect(stripTerminalEscapes('\x1b\x01[2J')).toBe('');
-    // Double-ESC: both removed (one by SIMPLE_ESC matching ESC+ESC equivalent, other by catch-all)
+    // Double-ESC: CSI_RE matches the second \x1b[2J, RESIDUAL_RE strips the lone leading \x1b
     expect(stripTerminalEscapes('\x1b\x1b[2J')).toBe('');
     // C1 spacer between ESC and parameter bytes
     expect(stripTerminalEscapes('\x1b\x90[2J')).toBe('');
@@ -293,6 +293,16 @@ describe('sanitizeMetadata', () => {
     const elapsed = performance.now() - start;
     // With 4KB cap, this should complete in well under 1 second
     expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('4096-boundary truncation cannot strand a live escape sequence', () => {
+    // Fill to exactly 4095 bytes, then append \x1b[31m (4 bytes) — truncated at 4096
+    const filler = 'A'.repeat(4095);
+    const input = filler + '\x1b[31m';
+    const result = stripTerminalEscapes(input);
+    // Truncation may split the sequence, but no ESC/BEL/C1 can survive Phase 3
+    expect(result).not.toMatch(/[\x07\x1b\x80-\x9f]/);
+    expect(result.length).toBeLessThanOrEqual(4096);
   });
 });
 
