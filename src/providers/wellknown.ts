@@ -7,6 +7,7 @@ import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
+const MAX_ARTIFACT_COMPRESSED_BYTES = 20 * 1024 * 1024;
 
 /**
  * Current v0.2.0 well-known discovery index.
@@ -283,6 +284,7 @@ export class WellKnownProvider implements HostProvider {
 
       const contentType = response.headers.get('content-type') ?? '';
       const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > MAX_ARTIFACT_COMPRESSED_BYTES) return null;
       if (this.computeDigest(bytes) !== entry.digest) return null;
 
       if (entry.type === 'skill-md') {
@@ -449,7 +451,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   private extractTarGz(bytes: Uint8Array): Map<string, WellKnownFileContent> {
-    const tar = gunzipSync(Buffer.from(bytes));
+    const tar = gunzipSync(Buffer.from(bytes), {
+      maxOutputLength: MAX_ARCHIVE_UNPACKED_BYTES,
+    });
     const files = new Map<string, WellKnownFileContent>();
     const runningTotal = { bytes: 0 };
     let offset = 0;
@@ -541,11 +545,17 @@ export class WellKnownProvider implements HostProvider {
       const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
       const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
 
+      if (uncompressedSize > MAX_ARCHIVE_UNPACKED_BYTES - runningTotal.bytes) {
+        throw new Error('Archive exceeds maximum unpacked size');
+      }
+
       let content: Buffer;
       if (method === 0) {
         content = compressed;
       } else if (method === 8) {
-        content = inflateRawSync(compressed);
+        content = inflateRawSync(compressed, {
+          maxOutputLength: MAX_ARCHIVE_UNPACKED_BYTES - runningTotal.bytes,
+        });
       } else {
         throw new Error(`Unsupported zip compression method: ${method}`);
       }
