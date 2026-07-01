@@ -369,11 +369,14 @@ export async function installSkillForAgent(
   agentType: AgentType,
   options: InstallOptions = {}
 ): Promise<InstallResult> {
+  // Resolve the real path of the skill source so symlink containment checks
+  // in copyDirectory compare against the canonical filesystem location.
+  const resolvedSourceRoot = await realpath(skill.path);
   return installSkillWithWriter({
     installName: skill.name || basename(skill.path),
     agentType,
     options,
-    writeToDirectory: (targetDir) => copyDirectory(skill.path, targetDir),
+    writeToDirectory: (targetDir) => copyDirectory(skill.path, targetDir, resolvedSourceRoot),
     skipMissingProjectAgentDir: true,
   });
 }
@@ -387,7 +390,7 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copyDirectory(src: string, dest: string, sourceRoot: string): Promise<void> {
   await mkdir(dest, { recursive: true });
 
   const entries = await readdir(src, { withFileTypes: true });
@@ -400,8 +403,26 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
         const srcPath = join(src, entry.name);
         const destPath = join(dest, entry.name);
 
+        // Security: reject symlinks whose real target escapes the source skill
+        // directory. This prevents an attacker-controlled repo from exfiltrating
+        // arbitrary local files (e.g. ~/.ssh/id_rsa) via symlink dereference
+        // (CWE-59). Matches the archive install path which rejects all links.
+        if (entry.isSymbolicLink()) {
+          try {
+            const realTarget = await realpath(srcPath);
+            if (!isPathSafe(sourceRoot, realTarget)) {
+              console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
+              return;
+            }
+          } catch {
+            // Broken symlink — skip it (same as the ENOENT handling below)
+            console.warn(`Skipping broken symlink: ${srcPath}`);
+            return;
+          }
+        }
+
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath);
+          await copyDirectory(srcPath, destPath, sourceRoot);
         } else {
           try {
             await cp(srcPath, destPath, {
