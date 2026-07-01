@@ -7,6 +7,10 @@ import type { ParsedSource } from './types.ts';
  * Returns null for local paths or unparseable sources.
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\/+$/, '').replace(/\.git$/i, '');
+}
+
 export function getOwnerRepo(parsed: ParsedSource): string | null {
   if (parsed.type === 'local') {
     return null;
@@ -16,7 +20,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   const sshMatch = parsed.url.match(/^git@[^:]+:(.+)$/);
   if (sshMatch) {
     let path = sshMatch[1]!;
-    path = path.replace(/\.git$/, '');
+    path = normalizeRepoPath(path);
 
     // Must have at least owner/repo (one slash)
     if (path.includes('/')) {
@@ -31,8 +35,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   if (urlLower.startsWith('ssh://')) {
     try {
       const url = new URL(parsed.url);
-      let path = url.pathname.slice(1);
-      path = path.replace(/\.git$/, '');
+      let path = normalizeRepoPath(url.pathname.slice(1));
 
       if (path.includes('/')) {
         return path;
@@ -51,8 +54,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   try {
     const url = new URL(parsed.url);
     // Get pathname, remove leading slash and trailing .git
-    let path = url.pathname.slice(1);
-    path = path.replace(/\.git$/, '');
+    let path = normalizeRepoPath(url.pathname.slice(1));
 
     // Must have at least owner/repo (one slash)
     if (path.includes('/')) {

@@ -103,6 +103,17 @@ describe('isRegistryMediatedParsedSource', () => {
     expect(mediated('HTTPS://github.com/attacker/evil.git')).toBe(true);
   });
 
+  it('mediates trailing-slash GitHub URLs that bypass parseSource canonicalization', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('https://GITHUB.COM/attacker/evil/')).toBe(true);
+    expect(mediated('https://github.com./attacker/evil/')).toBe(true);
+    expect(mediated('git@github.com.:attacker/evil/')).toBe(true);
+    expect(mediated('git@GITHUB.COM:attacker/evil/')).toBe(true);
+    expect(mediated('ssh://git@github.com:22/attacker/evil/')).toBe(true);
+    expect(mediated('ssh://git@ssh.github.com:443/attacker/evil/')).toBe(true);
+  });
+
   it('does not mediate non-GitHub git hosts', () => {
     process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
 
