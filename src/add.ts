@@ -1473,7 +1473,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const sortedGroups = Object.keys(groupedSummary).sort();
 
     for (const group of sortedGroups) {
-      const title = group
+      const title = sanitizeMetadata(group)
         .split('-')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
