@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { stripTerminalEscapes, sanitizeMetadata } from '../src/sanitize.ts';
+import { stripTerminalEscapes, sanitizeMetadata, formatGroupTitle } from '../src/sanitize.ts';
 
 describe('stripTerminalEscapes', () => {
   describe('CSI sequences (ESC[...)', () => {
@@ -186,5 +186,61 @@ describe('sanitizeMetadata', () => {
     expect(sanitizeMetadata('Guide for implementing smooth, native-feeling animations')).toBe(
       'Guide for implementing smooth, native-feeling animations'
     );
+  });
+
+  it('strips spacer-byte bypasses (v1 regression)', () => {
+    // Control char between ESC and [ prevented CSI_RE from matching in v1;
+    // now Phase 1 removes spacer, Phase 2 matches the reassembled CSI sequence
+    expect(stripTerminalEscapes('\x1b\x01[2J')).toBe('');
+    // Double-ESC: both removed (one by SIMPLE_ESC matching ESC+ESC equivalent, other by catch-all)
+    expect(stripTerminalEscapes('\x1b\x1b[2J')).toBe('');
+    // C1 spacer between ESC and parameter bytes
+    expect(stripTerminalEscapes('\x1b\x90[2J')).toBe('');
+  });
+
+  it('never leaves ESC/BEL/C1 introducer bytes in output', () => {
+    const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
+    const payloads = [
+      '\x1b\x01[2J',
+      '\x9b2J',
+      '\x1b]0;\x1b[2J\x07',
+      '\x1bP0;1|1\x1b\\',
+      '\x1b]0;unterminated',
+      '\x1b',
+      '\x07',
+      'plugin-\x1b[31mred\x1b[0m-name',
+    ];
+    for (const p of payloads) {
+      expect(dangerous(stripTerminalEscapes(p))).toBe(false);
+      expect(dangerous(sanitizeMetadata(p))).toBe(false);
+    }
+  });
+
+  it('caps input length to prevent ReDoS on unterminated sequences', () => {
+    const longInput = '\x1b]'.repeat(50000) + 'x';
+    const start = performance.now();
+    stripTerminalEscapes(longInput);
+    const elapsed = performance.now() - start;
+    // With 4KB cap, this should complete in well under 1 second
+    expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+describe('formatGroupTitle', () => {
+  it('converts kebab-case to Title Case', () => {
+    expect(formatGroupTitle('document-skills')).toBe('Document Skills');
+    expect(formatGroupTitle('ai-sdk')).toBe('Ai Sdk');
+    expect(formatGroupTitle('single')).toBe('Single');
+  });
+
+  it('strips escape sequences from group names', () => {
+    expect(formatGroupTitle('plugin-\x1b[31mred\x1b[0m-name')).toBe('Plugin Red Name');
+    expect(formatGroupTitle('\x1b]0;pwned\x07evil-plugin')).toBe('Evil Plugin');
+  });
+
+  it('handles empty and escape-only input', () => {
+    expect(formatGroupTitle('')).toBe('');
+    expect(formatGroupTitle('\x1b[2J')).toBe('');
+    expect(formatGroupTitle('\x07')).toBe('');
   });
 });
