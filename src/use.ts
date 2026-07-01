@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
@@ -173,7 +173,8 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files);
   } else {
-    await copySkillDirectory(skill.path, skillDir);
+    const resolvedRoot = await realpath(skill.path);
+    await copySkillDirectory(skill.path, skillDir, resolvedRoot);
   }
 
   const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
@@ -565,7 +566,7 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
+async function copySkillDirectory(src: string, dest: string, sourceRoot: string): Promise<void> {
   await mkdir(dest, { recursive: true });
   const entries = await readdir(src, { withFileTypes: true });
 
@@ -577,8 +578,34 @@ async function copySkillDirectory(src: string, dest: string): Promise<void> {
         const destPath = join(dest, entry.name);
         if (!isPathSafe(dest, destPath)) return;
 
+        // Security: reject symlinks whose real target escapes the source skill
+        // directory (CWE-59).
+        if (entry.isSymbolicLink()) {
+          let realTarget: string;
+          try {
+            realTarget = await realpath(srcPath);
+          } catch {
+            console.error(`Skipping broken symlink: ${srcPath}`);
+            return;
+          }
+          if (!isPathSafe(sourceRoot, realTarget)) {
+            console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
+            return;
+          }
+          let isDir: boolean;
+          try {
+            isDir = (await stat(realTarget)).isDirectory();
+          } catch {
+            return;
+          }
+          if (isDir) {
+            await copySkillDirectory(srcPath, destPath, sourceRoot);
+            return;
+          }
+        }
+
         if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
+          await copySkillDirectory(srcPath, destPath, sourceRoot);
           return;
         }
 

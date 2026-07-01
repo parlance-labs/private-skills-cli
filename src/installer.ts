@@ -434,13 +434,15 @@ async function copyDirectory(src: string, dest: string, sourceRoot: string): Pro
           }
           // Safe symlink — if it points to a directory, recurse so nested
           // symlinks are also checked rather than blindly dereferenced by cp.
+          let isDir: boolean;
           try {
-            if ((await stat(realTarget)).isDirectory()) {
-              await copyDirectory(srcPath, destPath, sourceRoot);
-              return;
-            }
+            isDir = (await stat(realTarget)).isDirectory();
           } catch {
             // stat failed — skip
+            return;
+          }
+          if (isDir) {
+            await copyDirectory(srcPath, destPath, sourceRoot);
             return;
           }
         }
