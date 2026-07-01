@@ -4,7 +4,6 @@ import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'node:util';
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
 
 import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
 import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
@@ -17,7 +16,7 @@ import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
 import { removeCommand } from './remove.ts';
-import { sanitizeMetadata } from './sanitize.ts';
+import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
@@ -268,7 +267,7 @@ function printCommandFailureOutput(result: {
   const details = (result.stderr || result.stdout || '').trim();
   if (!details) return;
   for (const line of details.split('\n').slice(-8)) {
-    console.log(`    ${DIM}${line}${RESET}`);
+    console.log(`    ${DIM}${stripTerminalEscapes(line)}${RESET}`);
   }
 }
 
