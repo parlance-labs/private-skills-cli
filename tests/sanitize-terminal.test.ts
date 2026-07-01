@@ -302,7 +302,7 @@ describe('sanitizeMetadata', () => {
   });
 
   it('4096-boundary truncation cannot strand a live escape sequence', () => {
-    // Fill to exactly 4095 bytes, then append \x1b[31m (4 bytes) — truncated at 4096
+    // Fill to exactly 4095 bytes, then append \x1b[31m (5 bytes) — truncated at 4096
     const filler = 'A'.repeat(4095);
     const input = filler + '\x1b[31m';
     const result = stripTerminalEscapes(input);
