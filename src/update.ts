@@ -561,6 +561,7 @@ export async function updateGlobalSkills(
       );
       continue;
     }
+    // SECURITY: do not add shell:true — installUrl is derived from untrusted lock-file values
     const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
@@ -706,6 +707,7 @@ export async function updateProjectSkills(
         registrySource ? { ...skill.entry, source: registrySource, ref: undefined } : skill.entry
       );
 
+      // SECURITY: do not add shell:true — installUrl and skill.name are from untrusted lock-file values
       const result = spawnSync(
         process.execPath,
         [cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
