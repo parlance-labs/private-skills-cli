@@ -371,7 +371,17 @@ export async function installSkillForAgent(
 ): Promise<InstallResult> {
   // Resolve the real path of the skill source so symlink containment checks
   // in copyDirectory compare against the canonical filesystem location.
-  const resolvedSourceRoot = await realpath(skill.path);
+  let resolvedSourceRoot: string;
+  try {
+    resolvedSourceRoot = await realpath(skill.path);
+  } catch (error) {
+    return {
+      success: false,
+      path: skill.path,
+      mode: options.mode ?? 'symlink',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
   return installSkillWithWriter({
     installName: skill.name || basename(skill.path),
     agentType,
@@ -407,16 +417,30 @@ async function copyDirectory(src: string, dest: string, sourceRoot: string): Pro
         // directory. This prevents an attacker-controlled repo from exfiltrating
         // arbitrary local files (e.g. ~/.ssh/id_rsa) via symlink dereference
         // (CWE-59). Matches the archive install path which rejects all links.
+        // For symlinks to directories inside the source root, recurse via
+        // copyDirectory so every nested entry is also validated.
         if (entry.isSymbolicLink()) {
+          let realTarget: string;
           try {
-            const realTarget = await realpath(srcPath);
-            if (!isPathSafe(sourceRoot, realTarget)) {
-              console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
+            realTarget = await realpath(srcPath);
+          } catch {
+            // Broken symlink — skip it
+            console.warn(`Skipping broken symlink: ${srcPath}`);
+            return;
+          }
+          if (!isPathSafe(sourceRoot, realTarget)) {
+            console.warn(`Skipping symlink escaping skill directory: ${srcPath}`);
+            return;
+          }
+          // Safe symlink — if it points to a directory, recurse so nested
+          // symlinks are also checked rather than blindly dereferenced by cp.
+          try {
+            if ((await stat(realTarget)).isDirectory()) {
+              await copyDirectory(srcPath, destPath, sourceRoot);
               return;
             }
           } catch {
-            // Broken symlink — skip it (same as the ENOENT handling below)
-            console.warn(`Skipping broken symlink: ${srcPath}`);
+            // stat failed — skip
             return;
           }
         }
@@ -426,10 +450,9 @@ async function copyDirectory(src: string, dest: string, sourceRoot: string): Pro
         } else {
           try {
             await cp(srcPath, destPath, {
-              // If the file is a symlink to elsewhere in a remote skill, it may not
-              // resolve correctly once it has been copied to the local location.
-              // `dereference: true` tells Node to copy the file instead of copying
-              // the symlink. `recursive: true` handles symlinks pointing to directories.
+              // Dereference remaining (file) symlinks that passed the containment
+              // check above so the copied file is a regular file, not a dangling
+              // symlink in the new location.
               dereference: true,
               recursive: true,
             });
