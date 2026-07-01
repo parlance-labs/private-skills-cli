@@ -113,7 +113,7 @@ const ALLOWED_URL_PATTERNS: RegExp[] = [
   /^http:\/\//i,
   /^git:\/\//i,
   /^ssh:\/\//i,
-  /^git@[^:]+:.+/i, // SSH shorthand: git@host:owner/repo
+  /^git@[^:-][^:]*:.+/i, // SSH shorthand: git@host:owner/repo (reject dash-leading hosts)
 ];
 
 /**
@@ -144,6 +144,22 @@ export function assertSafeGitUrl(url: string): void {
       `Refusing to clone: unsupported URL scheme in '${url}'. ` +
         `Only https://, http://, git://, ssh://, and git@host:path URLs are allowed.`
     );
+  }
+
+  // For ssh:// URLs, reject dash-leading hostnames (CVE-2017-1000117 class)
+  if (/^ssh:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.startsWith('-')) {
+        throw new Error(
+          `Refusing to clone: ssh:// URL has a dash-leading hostname '${parsed.hostname}'. ` +
+            `This could be used for SSH option injection.`
+        );
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Refusing to clone')) throw e;
+      // URL parse failure on an already-allowed pattern is fine — git will reject it
+    }
   }
 }
 
@@ -218,7 +234,7 @@ async function gitClone(
     '-c',
     'protocol.fd.allow=never',
     '-c',
-    'protocol.file.allow=user',
+    'protocol.file.allow=never',
   ];
 
   try {

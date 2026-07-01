@@ -43,7 +43,7 @@ src/
 ├── local-lock.ts    # Local lock file management (skills-lock.json, checked in)
 ├── sync.ts          # Sync command - crawl node_modules for skills
 ├── source-parser.ts # Parse git URLs, GitHub shorthand, local paths
-├── git.ts           # Git clone operations
+├── git.ts           # Git clone operations (security chokepoint — see below)
 ├── telemetry.ts     # Anonymous usage tracking
 ├── types.ts         # TypeScript types
 ├── mintlify.ts      # Mintlify skill fetching (legacy)
@@ -164,6 +164,16 @@ pnpm build
 # 3. Publish
 npm publish
 ```
+
+## Security: Git Clone URL Validation
+
+All remote clones flow through `cloneRepo()` in `src/git.ts`. It enforces:
+
+- **`assertSafeGitUrl(url)`** — allowlist of `https://`, `http://`, `git://`, `ssh://`, `git@host:path` schemes. Rejects `ext::`, `file::`, `fd::`, and any `<transport>::` remote-helper form (RCE vector). Rejects URLs starting with `-` (argument injection). Rejects dash-leading SSH hostnames.
+- **`--` end-of-options separator** before the positional URL argument in `git clone`.
+- **Defense-in-depth config** (`protocol.ext.allow=never`, `protocol.fd.allow=never`, `protocol.file.allow=never`) and `GIT_PROTOCOL_FROM_USER=0` env var.
+
+Do not remove or relax these controls without a security review.
 
 ## Adding a New Agent
 

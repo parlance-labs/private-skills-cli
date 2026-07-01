@@ -82,7 +82,7 @@ function expectGitCloneCall(callIndex: number, url: string, tempDir: string, ref
       '-c',
       'protocol.fd.allow=never',
       '-c',
-      'protocol.file.allow=user',
+      'protocol.file.allow=never',
       'clone',
       ...cloneOptions,
       '--',
@@ -318,8 +318,42 @@ describe('assertSafeGitUrl', () => {
     expect(() => assertSafeGitUrl('ftp://example.com/repo.git')).toThrow(/unsupported URL scheme/);
   });
 
-  it('rejects ext:: with encoded payloads', () => {
+  it('rejects ext:: with literal percent-encoded payload (prefix still matches)', () => {
     expect(() => assertSafeGitUrl('ext::sh%20-c%20id')).toThrow(/remote-helper transport/);
+  });
+
+  it('rejects uppercase transport helpers (EXT::, FILE::)', () => {
+    expect(() => assertSafeGitUrl('EXT::sh -c id')).toThrow(/remote-helper transport/);
+    expect(() => assertSafeGitUrl('FILE::/etc/passwd')).toThrow(/remote-helper transport/);
+    expect(() => assertSafeGitUrl('Ext::mixed')).toThrow(/remote-helper transport/);
+  });
+
+  it('rejects encoded separator (ext%3A%3A) as unsupported scheme', () => {
+    expect(() => assertSafeGitUrl('ext%3A%3Ash -c id')).toThrow(/unsupported URL scheme/);
+  });
+
+  it('rejects leading whitespace around dangerous URLs', () => {
+    expect(() => assertSafeGitUrl(' ext::sh -c id')).toThrow(/unsupported URL scheme/);
+    expect(() => assertSafeGitUrl('\text::sh -c id')).toThrow(/unsupported URL scheme/);
+  });
+
+  it('rejects null byte prefix', () => {
+    expect(() => assertSafeGitUrl('\0ext::sh -c id')).toThrow(/unsupported URL scheme/);
+  });
+
+  it('rejects ssh:// with dash-leading hostname', () => {
+    expect(() => assertSafeGitUrl('ssh://-oProxyCommand=id/repo')).toThrow(/dash-leading hostname/);
+  });
+
+  it('rejects git@ SSH shorthand with dash-leading hostname', () => {
+    expect(() => assertSafeGitUrl('git@-oProxyCommand=id:owner/repo')).toThrow(
+      /unsupported URL scheme/
+    );
+  });
+
+  it('allows uppercase scheme variants', () => {
+    expect(() => assertSafeGitUrl('HTTPS://github.com/owner/repo')).not.toThrow();
+    expect(() => assertSafeGitUrl('SSH://git@github.com/owner/repo')).not.toThrow();
   });
 
   it('rejects cloneRepo with ext:: URL before any git call', async () => {
