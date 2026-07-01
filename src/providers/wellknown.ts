@@ -8,6 +8,8 @@ const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/sche
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
 const MAX_ARTIFACT_COMPRESSED_BYTES = 20 * 1024 * 1024;
+const MAX_INDEX_BYTES = 2 * 1024 * 1024;
+const MAX_INDEX_ENTRIES = 100;
 
 /**
  * Current v0.2.0 well-known discovery index.
@@ -154,7 +156,9 @@ export class WellKnownProvider implements HostProvider {
           const response = await fetch(indexUrl);
           if (!response.ok) continue;
 
-          const rawIndex = (await response.json()) as unknown;
+          const indexBytes = await this.readResponseBytes(response, MAX_INDEX_BYTES);
+          if (!indexBytes) continue;
+          const rawIndex = JSON.parse(new TextDecoder().decode(indexBytes)) as unknown;
           const normalized = this.normalizeIndex(rawIndex, indexUrl);
           if (!normalized) continue;
 
@@ -283,8 +287,8 @@ export class WellKnownProvider implements HostProvider {
       if (!response.ok) return null;
 
       const contentType = response.headers.get('content-type') ?? '';
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength > MAX_ARTIFACT_COMPRESSED_BYTES) return null;
+      const bytes = await this.readResponseBytes(response, MAX_ARTIFACT_COMPRESSED_BYTES);
+      if (!bytes) return null;
       if (this.computeDigest(bytes) !== entry.digest) return null;
 
       if (entry.type === 'skill-md') {
@@ -364,11 +368,12 @@ export class WellKnownProvider implements HostProvider {
       const candidates = await this.fetchIndexCandidates(url);
 
       for (const result of candidates) {
-        const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
-        const results = await Promise.all(skillPromises);
-        const skills = results.filter(
-          (s: WellKnownSkill | null): s is WellKnownSkill => s !== null
-        );
+        const entries = result.entries.slice(0, MAX_INDEX_ENTRIES);
+        const skills: WellKnownSkill[] = [];
+        for (const entry of entries) {
+          const s = await this.fetchSkillByEntry(entry);
+          if (s) skills.push(s);
+        }
         if (skills.length > 0) return skills;
       }
 
@@ -376,6 +381,47 @@ export class WellKnownProvider implements HostProvider {
     } catch {
       return [];
     }
+  }
+
+  private async readResponseBytes(
+    response: Response,
+    maxBytes: number
+  ): Promise<Uint8Array | null> {
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxBytes) return null;
+
+    const body = response.body;
+    if (!body) {
+      const buf = new Uint8Array(await response.arrayBuffer());
+      return buf.byteLength > maxBytes ? null : buf;
+    }
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.byteLength;
+    }
+    return out;
   }
 
   private computeDigest(bytes: Uint8Array): string {
@@ -545,7 +591,8 @@ export class WellKnownProvider implements HostProvider {
       const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
       const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
 
-      if (uncompressedSize > MAX_ARCHIVE_UNPACKED_BYTES - runningTotal.bytes) {
+      const remaining = MAX_ARCHIVE_UNPACKED_BYTES - runningTotal.bytes;
+      if (remaining <= 0 || uncompressedSize > remaining) {
         throw new Error('Archive exceeds maximum unpacked size');
       }
 
@@ -554,7 +601,7 @@ export class WellKnownProvider implements HostProvider {
         content = compressed;
       } else if (method === 8) {
         content = inflateRawSync(compressed, {
-          maxOutputLength: MAX_ARCHIVE_UNPACKED_BYTES - runningTotal.bytes,
+          maxOutputLength: Math.max(1, remaining),
         });
       } else {
         throw new Error(`Unsupported zip compression method: ${method}`);
