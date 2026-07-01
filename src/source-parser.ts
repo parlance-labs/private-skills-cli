@@ -1,6 +1,16 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 
+/** Strip trailing slashes and a trailing .git suffix until stable. */
+function normalizeRepoPath(path: string): string {
+  let previous: string;
+  do {
+    previous = path;
+    path = path.replace(/\/+$/, '').replace(/\.git$/i, '');
+  } while (path !== previous);
+  return path;
+}
+
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
  * for lockfile tracking and telemetry.
@@ -16,7 +26,7 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   const sshMatch = parsed.url.match(/^git@[^:]+:(.+)$/);
   if (sshMatch) {
     let path = sshMatch[1]!;
-    path = path.replace(/\.git$/, '');
+    path = normalizeRepoPath(path);
 
     // Must have at least owner/repo (one slash)
     if (path.includes('/')) {
@@ -26,11 +36,12 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   }
 
   // Handle SSH URLs with a scheme (e.g., ssh://git@host:7999/owner/repo.git)
-  if (parsed.url.startsWith('ssh://')) {
+  // URI schemes are case-insensitive per RFC 3986, so compare lowercased.
+  const urlLower = parsed.url.toLowerCase();
+  if (urlLower.startsWith('ssh://')) {
     try {
       const url = new URL(parsed.url);
-      let path = url.pathname.slice(1);
-      path = path.replace(/\.git$/, '');
+      let path = normalizeRepoPath(url.pathname.slice(1));
 
       if (path.includes('/')) {
         return path;
@@ -42,15 +53,14 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
   }
 
   // Handle HTTP(S) URLs
-  if (!parsed.url.startsWith('http://') && !parsed.url.startsWith('https://')) {
+  if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
     return null;
   }
 
   try {
     const url = new URL(parsed.url);
     // Get pathname, remove leading slash and trailing .git
-    let path = url.pathname.slice(1);
-    path = path.replace(/\.git$/, '');
+    let path = normalizeRepoPath(url.pathname.slice(1));
 
     // Must have at least owner/repo (one slash)
     if (path.includes('/')) {
@@ -413,16 +423,19 @@ export function parseSource(input: string): ParsedSource {
  * Also excludes URLs that look like git repos (.git suffix).
  */
 function isWellKnownUrl(input: string): boolean {
-  if (!input.startsWith('http://') && !input.startsWith('https://')) {
+  const lower = input.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
     return false;
   }
 
   try {
     const parsed = new URL(input);
 
-    // Exclude known git hosts that have their own handling
+    // Exclude known git hosts that have their own handling.
+    // Normalize hostname (lowercase + strip trailing dot) to prevent bypasses.
+    const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
     const excludedHosts = ['github.com', 'gitlab.com', 'raw.githubusercontent.com'];
-    if (excludedHosts.includes(parsed.hostname)) {
+    if (excludedHosts.includes(host)) {
       return false;
     }
 
