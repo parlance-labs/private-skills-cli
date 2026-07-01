@@ -114,6 +114,20 @@ describe('isRegistryMediatedParsedSource', () => {
     expect(mediated('ssh://git@ssh.github.com:443/attacker/evil/')).toBe(true);
   });
 
+  it('mediates trailing /.git suffix variants (normalizeRepoPath idempotence)', () => {
+    process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
+
+    expect(mediated('https://GITHUB.COM/attacker/evil/.git')).toBe(true);
+    expect(mediated('git@github.com.:attacker/evil/.git')).toBe(true);
+    expect(mediated('ssh://git@ssh.github.com:443/attacker/evil/.git')).toBe(true);
+
+    // Verify getOwnerRepo normalizes correctly
+    expect(getOwnerRepo(parseSource('https://GITHUB.COM/attacker/evil/.git'))).toBe(
+      'attacker/evil'
+    );
+    expect(getOwnerRepo(parseSource('git@GITHUB.COM:attacker/evil/.git'))).toBe('attacker/evil');
+  });
+
   it('does not mediate non-GitHub git hosts', () => {
     process.env.SKILLS_REGISTRY_TOKEN = 'secret-token';
 

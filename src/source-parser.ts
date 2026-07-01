@@ -1,16 +1,22 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 
+/** Strip trailing slashes and a trailing .git suffix until stable. */
+function normalizeRepoPath(path: string): string {
+  let previous: string;
+  do {
+    previous = path;
+    path = path.replace(/\/+$/, '').replace(/\.git$/i, '');
+  } while (path !== previous);
+  return path;
+}
+
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
  * for lockfile tracking and telemetry.
  * Returns null for local paths or unparseable sources.
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
-function normalizeRepoPath(path: string): string {
-  return path.replace(/\/+$/, '').replace(/\.git$/i, '');
-}
-
 export function getOwnerRepo(parsed: ParsedSource): string | null {
   if (parsed.type === 'local') {
     return null;
