@@ -12,6 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import { stripTerminalEscapes, sanitizeMetadata, formatGroupTitle } from '../src/sanitize.ts';
 
+const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
+
 describe('stripTerminalEscapes', () => {
   describe('CSI sequences (ESC[...)', () => {
     it('strips SGR color codes', () => {
@@ -147,6 +149,75 @@ describe('stripTerminalEscapes', () => {
       expect(result).not.toContain('\x1b');
     });
   });
+
+  describe('interposed control-char bypass (CWE-150)', () => {
+    it('strips ESC + DEL (0x7f) + CSI body', () => {
+      // \x1b\x7f[31m — DEL between ESC and [ defeats single-pass CSI_RE.
+      // 3-phase approach: Phase 1 strips DEL, Phase 2 matches reassembled CSI.
+      const result = stripTerminalEscapes('\x1b\x7f[31m');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + DEL + screen-clear body', () => {
+      const result = stripTerminalEscapes('evil\x1b\x7f[2Jname');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('evilname');
+    });
+
+    it('strips ESC + C1 byte (0x80) + CSI body', () => {
+      // Phase 1: C1_RE removes 0x80, Phase 2: CSI_RE matches reassembled \x1b[31m.
+      const result = stripTerminalEscapes('\x1b\x80[31m');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + multiple interposed bytes + CSI body', () => {
+      const result = stripTerminalEscapes('\x1b\x7f\x7f[31m');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + SUB (0x1a) + CSI body', () => {
+      const result = stripTerminalEscapes('\x1b\x1a[2J');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + FS (0x1c) + OSC-like body', () => {
+      const result = stripTerminalEscapes('\x1b\x1c]0;pwned\x07');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + BEL (0x07) spacer + CSI body', () => {
+      // BEL is retained in Phase 1 (needed as OSC terminator), so this path differs.
+      // After Phase 2, RESIDUAL_RE strips both ESC and BEL; residue '[31m' is inert.
+      const result = stripTerminalEscapes('\x1b\x07[31m');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('[31m');
+    });
+
+    it('strips spacer inside CSI body (ESC [ <ctrl> ...)', () => {
+      // Spacer inside the CSI parameter bytes; Phase 1 removes it, Phase 2 matches CSI.
+      const result = stripTerminalEscapes('\x1b[\x7f2J');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('');
+    });
+
+    it('strips ESC + printable char (simple two-byte escape)', () => {
+      // ESC followed by printable char is consumed by SIMPLE_ESC_RE
+      const result = stripTerminalEscapes('hello\x1bworld');
+      expect(dangerous(result)).toBe(false);
+      expect(result).toBe('helloorld');
+    });
+
+    it('strips trailing lone ESC bytes', () => {
+      // Truly lone ESC (end of string) is stripped by RESIDUAL_RE (Phase 3)
+      expect(stripTerminalEscapes('\x1b')).toBe('');
+      expect(stripTerminalEscapes('hello\x1b')).toBe('hello');
+    });
+  });
 });
 
 describe('sanitizeMetadata', () => {
@@ -188,18 +259,23 @@ describe('sanitizeMetadata', () => {
     );
   });
 
+  it('blocks interposed control-char bypass', () => {
+    const result = sanitizeMetadata('  \x1b\x7f[31mhello\x1b\x7f[0m  ');
+    expect(dangerous(result)).toBe(false);
+    expect(result).toBe('hello');
+  });
+
   it('strips spacer-byte bypasses (v1 regression)', () => {
     // Control char between ESC and [ prevented CSI_RE from matching in v1;
     // now Phase 1 removes spacer, Phase 2 matches the reassembled CSI sequence
     expect(stripTerminalEscapes('\x1b\x01[2J')).toBe('');
-    // Double-ESC: both removed (one by SIMPLE_ESC matching ESC+ESC equivalent, other by catch-all)
+    // Double-ESC: CSI_RE consumes the second ESC[2J; the leading lone ESC is removed by Phase 3 catch-all
     expect(stripTerminalEscapes('\x1b\x1b[2J')).toBe('');
-    // C1 spacer between ESC and parameter bytes
+    // C1 spacer between ESC and the CSI introducer `[`
     expect(stripTerminalEscapes('\x1b\x90[2J')).toBe('');
   });
 
   it('never leaves ESC/BEL/C1 introducer bytes in output', () => {
-    const dangerous = (s: string) => /[\x07\x1b\x80-\x9f]/.test(s);
     const payloads = [
       '\x1b\x01[2J',
       '\x9b2J',
@@ -223,6 +299,16 @@ describe('sanitizeMetadata', () => {
     const elapsed = performance.now() - start;
     // With 4KB cap, this should complete in well under 1 second
     expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('4096-boundary truncation cannot strand a live escape sequence', () => {
+    // Fill to exactly 4095 bytes, then append \x1b[31m (5 bytes) — truncated at 4096
+    const filler = 'A'.repeat(4095);
+    const input = filler + '\x1b[31m';
+    const result = stripTerminalEscapes(input);
+    // Truncation may split the sequence, but no ESC/BEL/C1 can survive Phase 3
+    expect(result).not.toMatch(/[\x07\x1b\x80-\x9f]/);
+    expect(result.length).toBeLessThanOrEqual(4096);
   });
 });
 
